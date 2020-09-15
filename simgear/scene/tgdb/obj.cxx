@@ -26,10 +26,17 @@
 #  include <simgear_config.h>
 #endif
 
+#include <osgDB/FileNameUtils>
+#include <osgDB/FileUtils>
+#include <osgDB/ReadFile>
+#include <osg/Texture2D>
+#include <osg/TexEnv>
+
 #include "obj.hxx"
 
 #include <simgear/debug/logstream.hxx>
 #include <simgear/io/sg_binobj.hxx>
+#include <simgear/bucket/newbucket.hxx>
 
 #include "SGTileGeometryBin.hxx"        // for original tile loading
 #include "SGTileDetailsCallback.hxx"    // for tile details ( random objects, and lighting )
@@ -76,13 +83,30 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
     SGQuatd hlOr = SGQuatd::fromLonLat(geodPos)*SGQuatd::fromEulerDeg(0, 0, 180);
     if (matlib)
     	matcache = matlib->generateMatCache(geodPos);
+      
+    // Create bucket based on tile name to get the extent
+    long index = strtol(osgDB::getSimpleFileName(osgDB::getNameLessExtension(path)).c_str(), NULL, 10);
+    SGBucket b(index);
+    double lon_min = b.get_center_lon() - 0.5 * b.get_width();
+    double lat_max = b.get_center_lat() + 0.5 * b.get_height();
+
+    // Overlay texture coordinates
+    std::vector<SGVec2f> oc;
 
     // rotate the tiles so that the bounding boxes get nearly axis aligned.
     // this will help the collision tree's bounding boxes a bit ...
     std::vector<SGVec3d> nodes = tile.get_wgs84_nodes();
-    for (unsigned i = 0; i < nodes.size(); ++i)
+    for (unsigned i = 0; i < nodes.size(); ++i) {
+      // Generate TexCoords for Overlay
+      SGGeod node_deg = SGGeod::fromCart(nodes[i] + center);
+      float x = (node_deg.getLongitudeDeg() - lon_min) / b.get_width();
+      float y = (lat_max - node_deg.getLatitudeDeg()) / b.get_height();
+      oc.push_back(SGVec2f(x, y));
+
       nodes[i] = hlOr.transform(nodes[i]);
+    }
     tile.set_wgs84_nodes(nodes);
+    tile.set_overlaycoords(oc);
 
     SGQuatf hlOrf(hlOr[0], hlOr[1], hlOr[2], hlOr[3]);
     std::vector<SGVec3f> normals = tile.get_normals();
@@ -97,6 +121,22 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
       return NULL;
 
     osg::Node* node = tileGeometryBin->getSurfaceGeometry(matcache, useVBOs);
+    if (node) {
+      // Add overlay texture (satellite imagery) if it exists
+      std::string overlayFile = osgDB::getNameLessExtension(path) + ".png";
+      if (osgDB::fileExists(overlayFile)) {
+        // Get base node stateset
+        osg::StateSet *stateSet = node->getOrCreateStateSet();
+
+        // Load and set overlay texture
+        osg::ref_ptr<osg::Image> overlayImage = osgDB::readRefImageFile(overlayFile);
+        osg::ref_ptr<osg::Texture2D> overlayTexture = new osg::Texture2D(overlayImage);
+        stateSet->setTextureAttributeAndModes(15, overlayTexture, osg::StateAttribute::ON);
+
+        SG_LOG(SG_TERRAIN, SG_INFO, "  Adding overlay image " << osgDB::getSimpleFileName(overlayFile));
+      }
+    }
+
     if (node && simplifyDistant) {
       osgUtil::Simplifier simplifier(ratio, maxError, maxLength);
       node->accept(simplifier);
