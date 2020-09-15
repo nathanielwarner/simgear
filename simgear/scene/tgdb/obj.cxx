@@ -61,6 +61,7 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
     double maxError    = SG_SIMPLIFIER_MAX_ERROR;
     double object_range = SG_OBJECT_RANGE_ROUGH;
     double tile_min_expiry = SG_TILE_MIN_EXPIRY;
+    bool usePhotoscenery = false;
 
     if (options) {
       matlib = options->getMaterialLib();
@@ -76,6 +77,7 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
       maxError = propertyNode->getDoubleValue("/sim/rendering/terrain/simplifier/max-error", maxError);
       object_range = propertyNode->getDoubleValue("/sim/rendering/static-lod/rough", object_range);
       tile_min_expiry= propertyNode->getDoubleValue("/sim/rendering/plod-minimum-expiry-time-secs", tile_min_expiry);
+      usePhotoscenery = propertyNode->getBoolValue("/sim/rendering/photoscenery/enabled", usePhotoscenery);
     }
 
     SGVec3d center = tile.get_gbs_center();
@@ -121,7 +123,7 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
       return NULL;
 
     osg::Node* node = tileGeometryBin->getSurfaceGeometry(matcache, useVBOs);
-    if (node) {
+    if (node && usePhotoscenery) {
       // Add overlay texture (satellite imagery) if it exists
       std::string overlayFile = osgDB::getNameLessExtension(path) + ".png";
       if (osgDB::fileExists(overlayFile)) {
