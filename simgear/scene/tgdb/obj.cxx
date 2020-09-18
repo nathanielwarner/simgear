@@ -123,19 +123,31 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
       return NULL;
 
     osg::Node* node = tileGeometryBin->getSurfaceGeometry(matcache, useVBOs);
-    if (node && usePhotoscenery) {
-      // Add overlay texture (satellite imagery) if it exists
-      std::string overlayFile = osgDB::getNameLessExtension(path) + ".png";
-      if (osgDB::fileExists(overlayFile)) {
-        // Get base node stateset
-        osg::StateSet *stateSet = node->getOrCreateStateSet();
 
-        // Load and set overlay texture
-        osg::ref_ptr<osg::Image> overlayImage = osgDB::readRefImageFile(overlayFile);
-        osg::ref_ptr<osg::Texture2D> overlayTexture = new osg::Texture2D(overlayImage);
-        stateSet->setTextureAttributeAndModes(15, overlayTexture, osg::StateAttribute::ON);
+    if (node) {
+      // Get base node stateset
+      osg::StateSet *stateSet = node->getOrCreateStateSet();
 
-        SG_LOG(SG_TERRAIN, SG_INFO, "  Adding overlay image " << osgDB::getSimpleFileName(overlayFile));
+      osg::ref_ptr<osg::Uniform> overlaySet = new osg::Uniform("overlaySet", 0);
+      stateSet->addUniform(overlaySet, osg::StateAttribute::ON);
+
+      if (usePhotoscenery) {
+        // Add overlay texture (satellite imagery) if it exists
+        std::string overlayFile = osgDB::getNameLessExtension(path) + ".png";
+        if (osgDB::fileExists(overlayFile)) {
+          // Load and set overlay texture
+          osg::ref_ptr<osg::Image> overlayImage = osgDB::readRefImageFile(overlayFile);
+          osg::ref_ptr<osg::Texture2D> overlayTexture = new osg::Texture2D(overlayImage);
+          overlayTexture->setBorderColor(osg::Vec4(0.0, 0.0, 0.0, 0.0));
+          overlayTexture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_BORDER);
+          overlayTexture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_BORDER);
+          overlayTexture->setWrap(osg::Texture::WrapParameter::WRAP_R, osg::Texture::WrapMode::CLAMP_TO_BORDER);
+          stateSet->setTextureAttributeAndModes(15, overlayTexture, osg::StateAttribute::ON);
+
+          overlaySet->set(1);
+
+          SG_LOG(SG_TERRAIN, SG_INFO, "  Adding overlay image " << osgDB::getSimpleFileName(overlayFile) << "  with pixel format " << std::hex << overlayImage->getPixelFormat());
+        }
       }
     }
 
