@@ -43,6 +43,7 @@
 #include <simgear/bucket/newbucket.hxx>
 #include <simgear/debug/logstream.hxx>
 #include <simgear/io/iostreams/sgstream.hxx>
+#include <simgear/scene/util/OrthophotoManager.hxx>
 #include <simgear/scene/util/OptionsReadFileCallback.hxx>
 #include <simgear/scene/util/OsgMath.hxx>
 #include <simgear/scene/util/QuadTreeBuilder.hxx>
@@ -725,6 +726,7 @@ ReaderWriterSTG::readNode(const std::string& fileName, const osgDB::Options* opt
     // Stop scanning paths once an object base is found
     // But do load all STGs at the same level (i.e from the same scenery path)
     const osgDB::FilePathList& filePathList = options->getDatabasePathList();
+    OrthophotoManager::instance()->setSceneryPaths(filePathList);
     for (auto path : filePathList) {
         if (modelBin._foundBase) {
             break;
