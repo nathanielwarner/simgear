@@ -129,23 +129,23 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
       // Get base node stateset
       osg::StateSet *stateSet = node->getOrCreateStateSet();
 
-      osg::ref_ptr<osg::Uniform> overlaySet = new osg::Uniform("overlaySet", 0);
-      stateSet->addUniform(overlaySet, osg::StateAttribute::ON);
+      osg::ref_ptr<osg::Uniform> orthophotoAvailable = new osg::Uniform("orthophotoAvailable", false);
+      stateSet->addUniform(orthophotoAvailable, osg::StateAttribute::ON);
 
       if (usePhotoscenery) {
-        // Add overlay texture (satellite imagery) if it exists
+        // Add satellite texture (if orthophoto exists)
 
-        osg::ref_ptr<osg::Image> satelliteOrthophoto;
-        OrthophotoManager::instance()->getOrthophoto(index, satelliteOrthophoto);
-        if (satelliteOrthophoto) {
-          osg::ref_ptr<osg::Texture2D> orthophotoTexture = new osg::Texture2D(satelliteOrthophoto);
+        osg::ref_ptr<osg::Image> orthophoto;
+        OrthophotoManager::instance()->getOrthophoto(index, orthophoto);
+        if (orthophoto) {
+          osg::ref_ptr<osg::Texture2D> orthophotoTexture = new osg::Texture2D(orthophoto);
           orthophotoTexture->setBorderColor(osg::Vec4(0.0, 0.0, 0.0, 0.0));
           orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_BORDER);
           orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_BORDER);
           orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_R, osg::Texture::WrapMode::CLAMP_TO_BORDER);
           stateSet->setTextureAttributeAndModes(15, orthophotoTexture, osg::StateAttribute::ON);
 
-          overlaySet->set(1);
+          orthophotoAvailable->set(true);
 
           SG_LOG(SG_TERRAIN, SG_INFO, "  Adding overlay image for index " << index);
         }
