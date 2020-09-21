@@ -24,17 +24,25 @@ namespace simgear {
         return SingletonRefPtr<OrthophotoManager>::instance();
     }
 
-    void OrthophotoManager::setSceneryPaths(const osgDB::FilePathList& sceneryPaths) {
-        baseSceneryPaths = sceneryPaths;
+    void OrthophotoManager::addSceneryPath(const SGPath path) {
+        for (SGPath existingPath : sceneryPaths) {
+            if (path == existingPath) {
+                return;
+            }
+        }
+        sceneryPaths.push_front(path);
+    }
+
+    void OrthophotoManager::clearSceneryPaths() {
+        sceneryPaths.clear();
     }
 
     void OrthophotoManager::getOrthophoto(long index, osg::ref_ptr<osg::Image>& orthophoto) {
         SGBucket bucket(index);
         std::string bucketPath = bucket.gen_base_path();
 
-        for (std::string sceneryPath : baseSceneryPaths) {
-            SGPath path(sceneryPath);
-            path = path / "Orthophotos" / bucketPath / std::to_string(index);
+        for (SGPath sceneryPath : sceneryPaths) {
+            SGPath path = sceneryPath / "Orthophotos" / bucketPath / std::to_string(index);
             path.concat(".png");
             if (path.exists()) {
                 orthophoto = osgDB::readRefImageFile(path.str());

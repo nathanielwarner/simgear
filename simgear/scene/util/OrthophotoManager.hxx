@@ -31,10 +31,11 @@
 namespace simgear {
     class OrthophotoManager : public osg::Referenced {
     private:
-        osgDB::FilePathList baseSceneryPaths;
+        std::deque<SGPath> sceneryPaths;
     public:
         static OrthophotoManager* instance();
-        void setSceneryPaths(const osgDB::FilePathList& sceneryPaths);
+        void addSceneryPath(const SGPath path);
+        void clearSceneryPaths();
         void getOrthophoto(long index, osg::ref_ptr<osg::Image>& orthophoto);
     };
 }
