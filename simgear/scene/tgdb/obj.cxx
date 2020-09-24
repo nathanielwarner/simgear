@@ -93,7 +93,7 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
     double lon_min = b.get_center_lon() - 0.5 * b.get_width();
     double lat_max = b.get_center_lat() + 0.5 * b.get_height();
 
-    // Overlay texture coordinates
+    // Satellite overlay texture coordinates
     std::vector<SGVec2f> oc;
 
     // rotate the tiles so that the bounding boxes get nearly axis aligned.
@@ -139,10 +139,9 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
         OrthophotoManager::instance()->getOrthophoto(index, orthophoto);
         if (orthophoto) {
           osg::ref_ptr<osg::Texture2D> orthophotoTexture = new osg::Texture2D(orthophoto);
-          orthophotoTexture->setBorderColor(osg::Vec4(0.0, 0.0, 0.0, 0.0));
-          orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_BORDER);
-          orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_BORDER);
-          orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_R, osg::Texture::WrapMode::CLAMP_TO_BORDER);
+          orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_EDGE);
+          orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_EDGE);
+          orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_R, osg::Texture::WrapMode::CLAMP_TO_EDGE);
           stateSet->setTextureAttributeAndModes(15, orthophotoTexture, osg::StateAttribute::ON);
 
           orthophotoAvailable->set(true);
