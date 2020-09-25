@@ -159,6 +159,9 @@ public:
     void setLoadOriginHint(LoadOriginHint _v) const { _LoadOriginHint = _v; } 
     LoadOriginHint getLoadOriginHint() const { return _LoadOriginHint; } 
 
+    void setTileIndex(long tileIndex) { _tileIndex = tileIndex; }
+    long getTileIndex() const { return _tileIndex; }
+
 protected:
     virtual ~SGReaderWriterOptions();
 
@@ -178,6 +181,7 @@ private:
     string_list _sceneryPathSuffixes;
     SGGeod _geod;
     mutable LoadOriginHint _LoadOriginHint;
+    long _tileIndex = 0;
 };
 
 }

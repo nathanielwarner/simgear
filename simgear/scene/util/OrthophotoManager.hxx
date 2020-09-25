@@ -20,6 +20,8 @@
 #ifndef SG_SCENE_ORTHOPHOTO_MANAGER
 #define SG_SCENE_ORTHOPHOTO_MANAGER
 
+#include <unordered_map>
+
 #include <osg/Referenced>
 #include <osg/Image>
 #include <osgDB/ReaderWriter>
@@ -31,7 +33,8 @@
 namespace simgear {
     class OrthophotoManager : public osg::Referenced {
     private:
-        std::deque<SGPath> sceneryPaths;
+        std::deque<SGPath> _sceneryPaths;
+        std::unordered_map<long, osg::ref_ptr<osg::Image>> _orthophotos;
     public:
         static OrthophotoManager* instance();
         void addSceneryPath(const SGPath path);
