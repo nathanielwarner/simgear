@@ -88,7 +88,7 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
     	matcache = matlib->generateMatCache(geodPos);
       
     // Create bucket based on tile name to get the extent
-    long index = options->getTileIndex();
+    long index = strtol(osgDB::getSimpleFileName(osgDB::getNameLessExtension(path)).c_str(), NULL, 10);
     SGBucket b(index);
     double lon_min = b.get_center_lon() - 0.5 * b.get_width();
     double lat_max = b.get_center_lat() + 0.5 * b.get_height();

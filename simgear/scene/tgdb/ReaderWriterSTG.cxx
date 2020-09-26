@@ -594,12 +594,10 @@ struct ReaderWriterSTG::_ModelBin {
         if (_foundBase) {
             for (auto stgObject : _objectList) {
                 osg::ref_ptr<osg::Node> node;
-                SGReaderWriterOptions *stgObjectOptions = stgObject._options.get();
-                stgObjectOptions->setTileIndex(bucket.gen_index());
 #if OSG_VERSION_LESS_THAN(3,4,0)
-                node = osgDB::readNodeFile(stgObject._name, stgObjectOptions);
+                node = osgDB::readNodeFile(stgObject._name, stgObject._options.get());
 #else
-                node = osgDB::readRefNodeFile(stgObject._name, stgObjectOptions);
+                node = osgDB::readRefNodeFile(stgObject._name, stgObject._options.get());
 #endif
                 if (!node.valid()) {
                     SG_LOG(SG_TERRAIN, SG_ALERT, stgObject._errorLocation << ": Failed to load "
