@@ -142,6 +142,7 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
           orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_EDGE);
           orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_EDGE);
           orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_R, osg::Texture::WrapMode::CLAMP_TO_EDGE);
+          orthophotoTexture->setMaxAnisotropy(SGSceneFeatures::instance()->getTextureFilter());
           stateSet->setTextureAttributeAndModes(15, orthophotoTexture, osg::StateAttribute::ON);
 
           orthophotoAvailable->set(true);
