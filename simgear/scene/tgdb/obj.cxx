@@ -86,30 +86,59 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
     SGQuatd hlOr = SGQuatd::fromLonLat(geodPos)*SGQuatd::fromEulerDeg(0, 0, 180);
     if (matlib)
     	matcache = matlib->generateMatCache(geodPos);
-      
-    // Create bucket based on tile name to get the extent
-    long index = strtol(osgDB::getSimpleFileName(osgDB::getNameLessExtension(path)).c_str(), NULL, 10);
-    SGBucket b(index);
-    double lon_min = b.get_center_lon() - 0.5 * b.get_width();
-    double lat_max = b.get_center_lat() + 0.5 * b.get_height();
 
-    // Satellite overlay texture coordinates
-    std::vector<SGVec2f> oc;
+
+    std::vector<SGVec3d> nodes = tile.get_wgs84_nodes();
+
+    std::vector<SGVec2f> satellite_overlay_coords;
+    double min_lon = 180.0;
+    double max_lon = -180.0;
+    double min_lat = 90.0;
+    double max_lat = -90.0;
+    osg::ref_ptr<osg::Image> orthophoto;
+    double ortho_min_lon = 180.0;
+    double ortho_max_lon = -180.0;
+    double ortho_min_lat = 90.0;
+    double ortho_max_lat = -90.0;
+    if (usePhotoscenery) {
+      // Find min/max lon/lat by brute force
+      for (unsigned i = 0; i < nodes.size(); ++i) {
+        SGGeod node_geod = SGGeod::fromCart(nodes[i] + center);
+        double lon_deg = node_geod.getLongitudeDeg();
+        double lat_deg = node_geod.getLatitudeDeg();
+
+        if (lon_deg < min_lon)
+          min_lon = lon_deg;
+        if (lon_deg > max_lon)
+          max_lon = lon_deg;
+        if (lat_deg < min_lat)
+          min_lat = lat_deg;
+        if (lat_deg > max_lat)
+          max_lat = lat_deg;
+      }
+
+      // Load the necessary orthophoto and find its actual lon/lat
+      OrthophotoManager::instance()->getOrthophoto(min_lon, max_lon, min_lat, max_lat, orthophoto, 
+                                                   ortho_min_lon, ortho_max_lon, ortho_min_lat, ortho_max_lat);
+    }
 
     // rotate the tiles so that the bounding boxes get nearly axis aligned.
     // this will help the collision tree's bounding boxes a bit ...
-    std::vector<SGVec3d> nodes = tile.get_wgs84_nodes();
     for (unsigned i = 0; i < nodes.size(); ++i) {
-      // Generate TexCoords for Overlay
-      SGGeod node_deg = SGGeod::fromCart(nodes[i] + center);
-      float x = (node_deg.getLongitudeDeg() - lon_min) / b.get_width();
-      float y = (lat_max - node_deg.getLatitudeDeg()) / b.get_height();
-      oc.push_back(SGVec2f(x, y));
+      if (usePhotoscenery) {
+        // Generate TexCoords for Overlay
+        SGGeod node_geod = SGGeod::fromCart(nodes[i] + center);
+        float x = (node_geod.getLongitudeDeg() - ortho_min_lon) / (ortho_max_lon - ortho_min_lon);
+        float y = (ortho_max_lat - node_geod.getLatitudeDeg()) / (ortho_max_lat - ortho_min_lat);
+        satellite_overlay_coords.push_back(SGVec2f(x, y));
+      }
 
       nodes[i] = hlOr.transform(nodes[i]);
     }
     tile.set_wgs84_nodes(nodes);
-    tile.set_overlaycoords(oc);
+    if (usePhotoscenery) {
+      tile.set_overlaycoords(satellite_overlay_coords);
+    }
 
     SGQuatf hlOrf(hlOr[0], hlOr[1], hlOr[2], hlOr[3]);
     std::vector<SGVec3f> normals = tile.get_normals();
@@ -132,23 +161,19 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
       osg::ref_ptr<osg::Uniform> orthophotoAvailable = new osg::Uniform("orthophotoAvailable", false);
       stateSet->addUniform(orthophotoAvailable, osg::StateAttribute::ON);
 
-      if (usePhotoscenery) {
-        // Add satellite texture (if orthophoto exists)
+      // Add satellite texture (if orthophoto exists)
+      if (usePhotoscenery && orthophoto) {
+        
+        osg::ref_ptr<osg::Texture2D> orthophotoTexture = new osg::Texture2D(orthophoto);
+        orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_EDGE);
+        orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_EDGE);
+        orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_R, osg::Texture::WrapMode::CLAMP_TO_EDGE);
+        orthophotoTexture->setMaxAnisotropy(SGSceneFeatures::instance()->getTextureFilter());
+        stateSet->setTextureAttributeAndModes(15, orthophotoTexture, osg::StateAttribute::ON);
 
-        osg::ref_ptr<osg::Image> orthophoto;
-        OrthophotoManager::instance()->getOrthophoto(index, orthophoto);
-        if (orthophoto) {
-          osg::ref_ptr<osg::Texture2D> orthophotoTexture = new osg::Texture2D(orthophoto);
-          orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_EDGE);
-          orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_EDGE);
-          orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_R, osg::Texture::WrapMode::CLAMP_TO_EDGE);
-          orthophotoTexture->setMaxAnisotropy(SGSceneFeatures::instance()->getTextureFilter());
-          stateSet->setTextureAttributeAndModes(15, orthophotoTexture, osg::StateAttribute::ON);
+        orthophotoAvailable->set(true);
 
-          orthophotoAvailable->set(true);
-
-          SG_LOG(SG_TERRAIN, SG_INFO, "  Adding overlay image for index " << index);
-        }
+        SG_LOG(SG_TERRAIN, SG_INFO, "  Adding overlay image for object with path " << path);
       }
     }
 

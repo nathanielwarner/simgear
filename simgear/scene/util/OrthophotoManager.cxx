@@ -37,17 +37,44 @@ namespace simgear {
         sceneryPaths.clear();
     }
 
-    void OrthophotoManager::getOrthophoto(long index, osg::ref_ptr<osg::Image>& orthophoto) {
-        SGBucket bucket(index);
-        std::string bucketPath = bucket.gen_base_path();
+    void OrthophotoManager::getOrthophoto(double min_lon, double max_lon, double min_lat, double max_lat, osg::ref_ptr<osg::Image>& orthophoto, 
+                                          double& ortho_min_lon, double& ortho_max_lon, double& ortho_min_lat, double& ortho_max_lat) {
 
-        for (SGPath sceneryPath : sceneryPaths) {
-            SGPath path = sceneryPath / "Orthophotos" / bucketPath / std::to_string(index);
-            path.concat(".png");
-            if (path.exists()) {
-                orthophoto = osgDB::readRefImageFile(path.str());
-                break;
+        // Need to shrink the input bounding box by epsilon so we don't incorrectly end up with too many buckets
+        double eps = SG_EPSILON * SGD_RADIANS_TO_DEGREES;
+        min_lon += eps;
+        max_lon -= eps;
+        min_lat += eps;
+        max_lat -= eps;
+        
+        std::vector<SGBucket> buckets;
+        SGGeod min_geod = SGGeod::fromDeg(min_lon, min_lat);
+        sgGetBuckets(min_geod, min_geod, buckets);
+
+        if (buckets.size() == 1) {
+            SGBucket bucket = buckets[0];
+            std::string bucketPath = bucket.gen_base_path();
+            long index = bucket.gen_index();
+
+            double center_lon = bucket.get_center_lon();
+            double center_lat = bucket.get_center_lat();
+            double width = bucket.get_width();
+            double height = bucket.get_height();
+
+            ortho_min_lon = center_lon - width;
+            ortho_max_lon = center_lon + width;
+            ortho_min_lat = center_lat - height;
+            ortho_max_lat = center_lat + height;
+
+            for (SGPath sceneryPath : sceneryPaths) {
+                SGPath path = sceneryPath / "Orthophotos" / bucketPath / std::to_string(index);
+                path.concat(".png");
+                if (path.exists()) {
+                    orthophoto = osgDB::readRefImageFile(path.str());
+                    break;
+                }
             }
         }
+        
     }
 }

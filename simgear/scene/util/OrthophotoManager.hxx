@@ -36,7 +36,8 @@ namespace simgear {
         static OrthophotoManager* instance();
         void addSceneryPath(const SGPath path);
         void clearSceneryPaths();
-        void getOrthophoto(long index, osg::ref_ptr<osg::Image>& orthophoto);
+        void getOrthophoto(double min_lon, double max_lon, double min_lat, double max_lat, osg::ref_ptr<osg::Image>& orthophoto, 
+                           double& ortho_min_lon, double& ortho_max_lon, double& ortho_min_lat, double& ortho_max_lat);
     };
 }
 
