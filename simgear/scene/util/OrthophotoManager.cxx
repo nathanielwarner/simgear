@@ -42,16 +42,36 @@ namespace simgear {
     }
 
     void OrthophotoManager::addSceneryPath(const SGPath path) {
-        for (SGPath existingPath : sceneryPaths) {
+        for (SGPath existingPath : _sceneryPaths) {
             if (path == existingPath) {
                 return;
             }
         }
-        sceneryPaths.push_front(path);
+        _sceneryPaths.push_front(path);
     }
 
     void OrthophotoManager::clearSceneryPaths() {
-        sceneryPaths.clear();
+        _sceneryPaths.clear();
+    }
+
+    void augmentBoundingBox(SGRect<double>& bbox, SGBucket& newBucket) {
+        double center_lon = newBucket.get_center_lon();
+        double center_lat = newBucket.get_center_lat();
+        double width = newBucket.get_width();
+        double height = newBucket.get_height();
+        double left = center_lon - width / 2;
+        double right = center_lon + width / 2;
+        double bottom = center_lat - height / 2;
+        double top = center_lat + height / 2;
+
+        if (bbox.l() > left)
+            bbox.setLeft(left);
+        if (bbox.r() < right)
+            bbox.setRight(right);
+        if (bbox.b() > bottom)
+            bbox.setBottom(bottom);
+        if (bbox.t() < top)
+            bbox.setTop(top);
     }
 
     osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(SGRect<double> rect) {
@@ -71,32 +91,31 @@ namespace simgear {
         // For now this works by identifying orthophotos by bucket index
 
         SGBucket bottom_left_bucket(SGGeod::fromDeg(rect.l(), rect.b()));
+        augmentBoundingBox(actual_bbox, bottom_left_bucket);
         
         std::vector<SGBucket> buckets;
         buckets.push_back(bottom_left_bucket);
 
         if (buckets.size() == 1) {
             SGBucket bucket = buckets[0];
-            std::string bucketPath = bucket.gen_base_path();
             long index = bucket.gen_index();
 
-            double center_lon = bucket.get_center_lon();
-            double center_lat = bucket.get_center_lat();
-            double width = bucket.get_width();
-            double height = bucket.get_height();
+            osg::ref_ptr<osg::Image>& image = _bucketImages[index];
+            if (!image) {
+                std::string bucketPath = bucket.gen_base_path();
 
-            actual_bbox.setLeft(center_lon - width / 2);
-            actual_bbox.setRight(center_lon + width / 2);
-            actual_bbox.setBottom(center_lat - height / 2);
-            actual_bbox.setTop(center_lat + height / 2);
-
-            for (SGPath sceneryPath : sceneryPaths) {
-                SGPath path = sceneryPath / "Orthophotos" / bucketPath / std::to_string(index);
-                path.concat(".png");
-                if (path.exists()) {
-                    osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile(path.str());
-                    return new Orthophoto(image, actual_bbox);
+                for (SGPath sceneryPath : _sceneryPaths) {
+                    SGPath path = sceneryPath / "Orthophotos" / bucketPath / std::to_string(index);
+                    path.concat(".png");
+                    if (path.exists()) {
+                        image = osgDB::readRefImageFile(path.str());
+                        break;
+                    }
                 }
+            }
+
+            if (image) {
+                return new Orthophoto(image, actual_bbox);
             }
         }
 
