@@ -87,13 +87,17 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
     if (matlib)
     	matcache = matlib->generateMatCache(geodPos);
 
-
     std::vector<SGVec3d> nodes = tile.get_wgs84_nodes();
 
     std::vector<SGVec2f> satellite_overlay_coords;
     osg::ref_ptr<Orthophoto> orthophoto = nullptr;
 
-    if (usePhotoscenery) {
+    long index = strtol(osgDB::getSimpleFileName(osgDB::getNameLessExtension(path)).c_str(), NULL, 10);
+    if (index > 0) {
+      orthophoto = OrthophotoManager::instance()->getOrthophoto(index);
+    } else {
+      // Find the orthophoto by bounding box
+
       SGRect<double> desired_bbox;
       desired_bbox.setLeft(180.0);
       desired_bbox.setRight(-180.0);
@@ -116,7 +120,6 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
           desired_bbox.setTop(lat_deg);
       }
 
-      // Load the necessary orthophoto and find its actual bounding box
       orthophoto = OrthophotoManager::instance()->getOrthophoto(desired_bbox);
     }
 

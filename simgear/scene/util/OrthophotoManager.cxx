@@ -95,14 +95,30 @@ namespace simgear {
         return image;
     }
 
+    SGRect<double> initBoundingBox() {
+        SGRect<double> bbox;
+        bbox.setLeft(180.0);
+        bbox.setBottom(90.0);
+        bbox.setRight(-180.0);
+        bbox.setTop(-90.0);
+        return bbox;
+    }
+
+    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(long bucket_index) {
+        SGBucket bucket(bucket_index);
+        osg::ref_ptr<osg::Image> image = getBucketImage(bucket);
+
+        if (!image)
+            return nullptr;
+
+        SGRect<double> bbox = initBoundingBox();
+        augmentBoundingBox(bbox, bucket);
+        
+        return new Orthophoto(image, bbox);
+    }
+
     osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(SGRect<double> desired_bbox) {
         
-        SGRect<double> actual_bbox;
-        actual_bbox.setLeft(180.0);
-        actual_bbox.setBottom(90.0);
-        actual_bbox.setRight(-180.0);
-        actual_bbox.setTop(-90.0);
-
         double eps = SG_EPSILON * SGD_RADIANS_TO_DEGREES;
         desired_bbox.setLeft(desired_bbox.l() + eps);
         desired_bbox.setBottom(desired_bbox.b() + eps);
@@ -115,6 +131,7 @@ namespace simgear {
         if (!bottom_left_image)
             return nullptr;
         
+        SGRect<double> actual_bbox = initBoundingBox();
         augmentBoundingBox(actual_bbox, bottom_left_bucket);
 
         // Simplest case - we already have the full orthophoto
@@ -123,14 +140,7 @@ namespace simgear {
         
 
         // More complex case - we need to create a composite orthophoto
-        
-        /*osg::ref_ptr<osg::Image> image = new osg::Image();
-        int new_width = bottom_left_image->s() * (desired_bbox.width() / actual_bbox.width());        // wrong wrong wrong
-        int new_height = bottom_left_image->t() * (desired_bbox.height() / actual_bbox.height());
-        image->allocateImage(new_width, new_height, bottom_left_image->r(), bottom_left_image->getPixelFormat(), 
-                             bottom_left_image->getDataType(), bottom_left_image->getPacking());
-        image->copySubImage(0, 0, 0, bottom_left_image);
-        return new Orthophoto(image, desired_bbox); // not done!*/
+        // For now, we leave it blank. (don't apply orthophoto)
         return nullptr;
     }
 }

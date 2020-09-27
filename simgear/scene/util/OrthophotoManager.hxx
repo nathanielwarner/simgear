@@ -53,6 +53,7 @@ namespace simgear {
         static OrthophotoManager* instance();
         void addSceneryPath(const SGPath path);
         void clearSceneryPaths();
+        osg::ref_ptr<Orthophoto> getOrthophoto(long bucket_index);
         osg::ref_ptr<Orthophoto> getOrthophoto(SGRect<double> desired_bbox);
     };
 }
