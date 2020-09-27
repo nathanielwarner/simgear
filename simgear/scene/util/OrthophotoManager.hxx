@@ -48,6 +48,7 @@ namespace simgear {
     private:
         std::deque<SGPath> _sceneryPaths;
         std::unordered_map<long, osg::ref_ptr<osg::Image>> _bucketImages;
+        osg::ref_ptr<osg::Image> getBucketImage(SGBucket bucket);
     public:
         static OrthophotoManager* instance();
         void addSceneryPath(const SGPath path);

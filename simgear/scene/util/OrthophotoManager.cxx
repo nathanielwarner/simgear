@@ -74,6 +74,27 @@ namespace simgear {
             bbox.setTop(top);
     }
 
+    osg::ref_ptr<osg::Image> OrthophotoManager::getBucketImage(SGBucket bucket) {
+        long index = bucket.gen_index();
+
+        osg::ref_ptr<osg::Image>& image = _bucketImages[index];
+
+        if (!image) {
+            std::string bucketPath = bucket.gen_base_path();
+
+            for (SGPath sceneryPath : _sceneryPaths) {
+                SGPath path = sceneryPath / "Orthophotos" / bucketPath / std::to_string(index);
+                path.concat(".png");
+                if (path.exists()) {
+                    image = osgDB::readRefImageFile(path.str());
+                    break;
+                }
+            }
+        }
+
+        return image;
+    }
+
     osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(SGRect<double> rect) {
         
         SGRect<double> actual_bbox;
@@ -88,38 +109,14 @@ namespace simgear {
         rect.setRight(rect.r() - eps);
         rect.setTop(rect.t() - eps);
 
-        // For now this works by identifying orthophotos by bucket index
-
         SGBucket bottom_left_bucket(SGGeod::fromDeg(rect.l(), rect.b()));
+        osg::ref_ptr<osg::Image> bottom_left_image = getBucketImage(bottom_left_bucket);
+
+        if (!bottom_left_image)
+            return nullptr;
+        
         augmentBoundingBox(actual_bbox, bottom_left_bucket);
         
-        std::vector<SGBucket> buckets;
-        buckets.push_back(bottom_left_bucket);
-
-        if (buckets.size() == 1) {
-            SGBucket bucket = buckets[0];
-            long index = bucket.gen_index();
-
-            osg::ref_ptr<osg::Image>& image = _bucketImages[index];
-            if (!image) {
-                std::string bucketPath = bucket.gen_base_path();
-
-                for (SGPath sceneryPath : _sceneryPaths) {
-                    SGPath path = sceneryPath / "Orthophotos" / bucketPath / std::to_string(index);
-                    path.concat(".png");
-                    if (path.exists()) {
-                        image = osgDB::readRefImageFile(path.str());
-                        break;
-                    }
-                }
-            }
-
-            if (image) {
-                return new Orthophoto(image, actual_bbox);
-            }
-        }
-
-        return nullptr;
-        
+        return new Orthophoto(bottom_left_image, actual_bbox);
     }
 }
