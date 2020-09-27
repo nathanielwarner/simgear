@@ -39,7 +39,7 @@ namespace simgear {
         osg::ref_ptr<osg::Texture2D> _texture;
         SGRect<double> _bbox;
     public:
-        Orthophoto(osg::ref_ptr<osg::Image>& image, SGRect<double>& bbox);
+        Orthophoto(osg::ref_ptr<osg::Image>& image, SGRect<double> bbox);
         osg::ref_ptr<osg::Texture2D> getTexture();
         SGRect<double> getBbox();
     };

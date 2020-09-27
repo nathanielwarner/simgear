@@ -20,7 +20,7 @@
 #include "OrthophotoManager.hxx"
 
 namespace simgear {
-    Orthophoto::Orthophoto(osg::ref_ptr<osg::Image>& image, SGRect<double>& bbox) {
+    Orthophoto::Orthophoto(osg::ref_ptr<osg::Image>& image, SGRect<double> bbox) {
         _texture = new osg::Texture2D(image);
         _texture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_EDGE);
         _texture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_EDGE);
@@ -95,7 +95,7 @@ namespace simgear {
         return image;
     }
 
-    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(SGRect<double> rect) {
+    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(SGRect<double> desired_bbox) {
         
         SGRect<double> actual_bbox;
         actual_bbox.setLeft(180.0);
@@ -104,19 +104,33 @@ namespace simgear {
         actual_bbox.setTop(-90.0);
 
         double eps = SG_EPSILON * SGD_RADIANS_TO_DEGREES;
-        rect.setLeft(rect.l() + eps);
-        rect.setBottom(rect.b() + eps);
-        rect.setRight(rect.r() - eps);
-        rect.setTop(rect.t() - eps);
+        desired_bbox.setLeft(desired_bbox.l() + eps);
+        desired_bbox.setBottom(desired_bbox.b() + eps);
+        desired_bbox.setRight(desired_bbox.r() - eps);
+        desired_bbox.setTop(desired_bbox.t() - eps);
 
-        SGBucket bottom_left_bucket(SGGeod::fromDeg(rect.l(), rect.b()));
+        SGBucket bottom_left_bucket(SGGeod::fromDeg(desired_bbox.l(), desired_bbox.b()));
         osg::ref_ptr<osg::Image> bottom_left_image = getBucketImage(bottom_left_bucket);
 
         if (!bottom_left_image)
             return nullptr;
         
         augmentBoundingBox(actual_bbox, bottom_left_bucket);
+
+        // Simplest case - we already have the full orthophoto
+        if (actual_bbox.r() > desired_bbox.r() && actual_bbox.t() > desired_bbox.t())
+            return new Orthophoto(bottom_left_image, actual_bbox);
         
-        return new Orthophoto(bottom_left_image, actual_bbox);
+
+        // More complex case - we need to create a composite orthophoto
+        
+        /*osg::ref_ptr<osg::Image> image = new osg::Image();
+        int new_width = bottom_left_image->s() * (desired_bbox.width() / actual_bbox.width());        // wrong wrong wrong
+        int new_height = bottom_left_image->t() * (desired_bbox.height() / actual_bbox.height());
+        image->allocateImage(new_width, new_height, bottom_left_image->r(), bottom_left_image->getPixelFormat(), 
+                             bottom_left_image->getDataType(), bottom_left_image->getPacking());
+        image->copySubImage(0, 0, 0, bottom_left_image);
+        return new Orthophoto(image, desired_bbox); // not done!*/
+        return nullptr;
     }
 }
