@@ -22,13 +22,26 @@
 
 #include <osg/Referenced>
 #include <osg/Image>
+#include <osg/Texture2D>
 #include <osgDB/ReaderWriter>
 #include <osgDB/ReadFile>
 #include <simgear/misc/sg_path.hxx>
 #include <simgear/bucket/newbucket.hxx>
+#include <simgear/math/SGRect.hxx>
+#include "SGSceneFeatures.hxx"
 #include "OsgSingleton.hxx"
 
 namespace simgear {
+    class Orthophoto : public osg::Referenced {
+    private:
+        osg::ref_ptr<osg::Texture2D> _texture;
+        SGRect<double> _bbox;
+    public:
+        Orthophoto(osg::ref_ptr<osg::Image>& image, SGRect<double>& bbox);
+        osg::ref_ptr<osg::Texture2D> getTexture();
+        SGRect<double> getBbox();
+    };
+
     class OrthophotoManager : public osg::Referenced {
     private:
         std::deque<SGPath> sceneryPaths;
@@ -36,8 +49,7 @@ namespace simgear {
         static OrthophotoManager* instance();
         void addSceneryPath(const SGPath path);
         void clearSceneryPaths();
-        void getOrthophoto(double min_lon, double max_lon, double min_lat, double max_lat, osg::ref_ptr<osg::Image>& orthophoto, 
-                           double& ortho_min_lon, double& ortho_max_lon, double& ortho_min_lat, double& ortho_max_lat);
+        osg::ref_ptr<Orthophoto> getOrthophoto(SGRect<double> desired_bbox);
     };
 }
 

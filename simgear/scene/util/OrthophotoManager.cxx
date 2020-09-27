@@ -20,6 +20,23 @@
 #include "OrthophotoManager.hxx"
 
 namespace simgear {
+    Orthophoto::Orthophoto(osg::ref_ptr<osg::Image>& image, SGRect<double>& bbox) {
+        _texture = new osg::Texture2D(image);
+        _texture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_EDGE);
+        _texture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_EDGE);
+        _texture->setWrap(osg::Texture::WrapParameter::WRAP_R, osg::Texture::WrapMode::CLAMP_TO_EDGE);
+        _texture->setMaxAnisotropy(SGSceneFeatures::instance()->getTextureFilter());
+        _bbox = bbox;
+    }
+
+    osg::ref_ptr<osg::Texture2D> Orthophoto::getTexture() {
+        return _texture;
+    }
+
+    SGRect<double> Orthophoto::getBbox() {
+        return _bbox;
+    }
+
     OrthophotoManager* OrthophotoManager::instance() {
         return SingletonRefPtr<OrthophotoManager>::instance();
     }
@@ -37,19 +54,26 @@ namespace simgear {
         sceneryPaths.clear();
     }
 
-    void OrthophotoManager::getOrthophoto(double min_lon, double max_lon, double min_lat, double max_lat, osg::ref_ptr<osg::Image>& orthophoto, 
-                                          double& ortho_min_lon, double& ortho_max_lon, double& ortho_min_lat, double& ortho_max_lat) {
+    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(SGRect<double> rect) {
+        
+        SGRect<double> actual_bbox;
+        actual_bbox.setLeft(180.0);
+        actual_bbox.setBottom(90.0);
+        actual_bbox.setRight(-180.0);
+        actual_bbox.setTop(-90.0);
 
-        // Need to shrink the input bounding box by epsilon so we don't incorrectly end up with too many buckets
         double eps = SG_EPSILON * SGD_RADIANS_TO_DEGREES;
-        min_lon += eps;
-        max_lon -= eps;
-        min_lat += eps;
-        max_lat -= eps;
+        rect.setLeft(rect.l() + eps);
+        rect.setBottom(rect.b() + eps);
+        rect.setRight(rect.r() - eps);
+        rect.setTop(rect.t() - eps);
+
+        // For now this works by identifying orthophotos by bucket index
+
+        SGBucket bottom_left_bucket(SGGeod::fromDeg(rect.l(), rect.b()));
         
         std::vector<SGBucket> buckets;
-        SGGeod min_geod = SGGeod::fromDeg(min_lon, min_lat);
-        sgGetBuckets(min_geod, min_geod, buckets);
+        buckets.push_back(bottom_left_bucket);
 
         if (buckets.size() == 1) {
             SGBucket bucket = buckets[0];
@@ -61,20 +85,22 @@ namespace simgear {
             double width = bucket.get_width();
             double height = bucket.get_height();
 
-            ortho_min_lon = center_lon - width;
-            ortho_max_lon = center_lon + width;
-            ortho_min_lat = center_lat - height;
-            ortho_max_lat = center_lat + height;
+            actual_bbox.setLeft(center_lon - width / 2);
+            actual_bbox.setRight(center_lon + width / 2);
+            actual_bbox.setBottom(center_lat - height / 2);
+            actual_bbox.setTop(center_lat + height / 2);
 
             for (SGPath sceneryPath : sceneryPaths) {
                 SGPath path = sceneryPath / "Orthophotos" / bucketPath / std::to_string(index);
                 path.concat(".png");
                 if (path.exists()) {
-                    orthophoto = osgDB::readRefImageFile(path.str());
-                    break;
+                    osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile(path.str());
+                    return new Orthophoto(image, actual_bbox);
                 }
             }
         }
+
+        return nullptr;
         
     }
 }

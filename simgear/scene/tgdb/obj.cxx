@@ -91,54 +91,53 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
     std::vector<SGVec3d> nodes = tile.get_wgs84_nodes();
 
     std::vector<SGVec2f> satellite_overlay_coords;
-    double min_lon = 180.0;
-    double max_lon = -180.0;
-    double min_lat = 90.0;
-    double max_lat = -90.0;
-    osg::ref_ptr<osg::Image> orthophoto;
-    double ortho_min_lon = 180.0;
-    double ortho_max_lon = -180.0;
-    double ortho_min_lat = 90.0;
-    double ortho_max_lat = -90.0;
+    osg::ref_ptr<Orthophoto> orthophoto = nullptr;
+
     if (usePhotoscenery) {
+      SGRect<double> desired_bbox;
+      desired_bbox.setLeft(180.0);
+      desired_bbox.setRight(-180.0);
+      desired_bbox.setBottom(90.0);
+      desired_bbox.setTop(-90.0);
+      
       // Find min/max lon/lat by brute force
       for (unsigned i = 0; i < nodes.size(); ++i) {
         SGGeod node_geod = SGGeod::fromCart(nodes[i] + center);
         double lon_deg = node_geod.getLongitudeDeg();
         double lat_deg = node_geod.getLatitudeDeg();
 
-        if (lon_deg < min_lon)
-          min_lon = lon_deg;
-        if (lon_deg > max_lon)
-          max_lon = lon_deg;
-        if (lat_deg < min_lat)
-          min_lat = lat_deg;
-        if (lat_deg > max_lat)
-          max_lat = lat_deg;
+        if (lon_deg < desired_bbox.l())
+          desired_bbox.setLeft(lon_deg);
+        if (lon_deg > desired_bbox.r())
+          desired_bbox.setRight(lon_deg);
+        if (lat_deg < desired_bbox.b())
+          desired_bbox.setBottom(lat_deg);
+        if (lat_deg > desired_bbox.t())
+          desired_bbox.setTop(lat_deg);
       }
 
-      // Load the necessary orthophoto and find its actual lon/lat
-      OrthophotoManager::instance()->getOrthophoto(min_lon, max_lon, min_lat, max_lat, orthophoto, 
-                                                   ortho_min_lon, ortho_max_lon, ortho_min_lat, ortho_max_lat);
+      // Load the necessary orthophoto and find its actual bounding box
+      orthophoto = OrthophotoManager::instance()->getOrthophoto(desired_bbox);
     }
 
     // rotate the tiles so that the bounding boxes get nearly axis aligned.
     // this will help the collision tree's bounding boxes a bit ...
     for (unsigned i = 0; i < nodes.size(); ++i) {
-      if (usePhotoscenery) {
+      if (orthophoto) {
         // Generate TexCoords for Overlay
         SGGeod node_geod = SGGeod::fromCart(nodes[i] + center);
-        float x = (node_geod.getLongitudeDeg() - ortho_min_lon) / (ortho_max_lon - ortho_min_lon);
-        float y = (ortho_max_lat - node_geod.getLatitudeDeg()) / (ortho_max_lat - ortho_min_lat);
+        SGRect<double> actual_bbox = orthophoto->getBbox();
+        float x = (node_geod.getLongitudeDeg() - actual_bbox.l()) / (actual_bbox.r() - actual_bbox.l());
+        float y = (actual_bbox.t() - node_geod.getLatitudeDeg()) / (actual_bbox.t() - actual_bbox.b());
         satellite_overlay_coords.push_back(SGVec2f(x, y));
+      } else {
+        satellite_overlay_coords.push_back(SGVec2f(0.0, 0.0));
       }
 
       nodes[i] = hlOr.transform(nodes[i]);
     }
     tile.set_wgs84_nodes(nodes);
-    if (usePhotoscenery) {
-      tile.set_overlaycoords(satellite_overlay_coords);
-    }
+    tile.set_overlaycoords(satellite_overlay_coords);
 
     SGQuatf hlOrf(hlOr[0], hlOr[1], hlOr[2], hlOr[3]);
     std::vector<SGVec3f> normals = tile.get_normals();
@@ -163,17 +162,10 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
 
       // Add satellite texture (if orthophoto exists)
       if (usePhotoscenery && orthophoto) {
-        
-        osg::ref_ptr<osg::Texture2D> orthophotoTexture = new osg::Texture2D(orthophoto);
-        orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_EDGE);
-        orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_EDGE);
-        orthophotoTexture->setWrap(osg::Texture::WrapParameter::WRAP_R, osg::Texture::WrapMode::CLAMP_TO_EDGE);
-        orthophotoTexture->setMaxAnisotropy(SGSceneFeatures::instance()->getTextureFilter());
-        stateSet->setTextureAttributeAndModes(15, orthophotoTexture, osg::StateAttribute::ON);
-
+        stateSet->setTextureAttributeAndModes(15, orthophoto->getTexture(), osg::StateAttribute::ON);
         orthophotoAvailable->set(true);
 
-        SG_LOG(SG_TERRAIN, SG_INFO, "  Adding overlay image for object with path " << path);
+        SG_LOG(SG_TERRAIN, SG_INFO, "  Added satellite orthophoto for terrain object with path " << path);
       }
     }
 
