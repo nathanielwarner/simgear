@@ -21,6 +21,28 @@
 
 namespace simgear {
     Orthophoto::Orthophoto(osg::ref_ptr<osg::Image>& image, SGRect<double> bbox) {
+        init(image, bbox);
+    }
+
+    Orthophoto::Orthophoto(std::vector<std::vector<osg::ref_ptr<osg::Image>>>& images, SGRect<double> bbox) {
+        osg::ref_ptr<osg::Image> bottom_left_image = images[0][0];
+        int bk_height = images.size();
+        int bk_width = images[0].size();
+        int px_width = bk_width * bottom_left_image->s();
+        int px_height = bk_height * bottom_left_image->t();
+        int px_depth = bottom_left_image->r();
+        GLenum pixel_format = bottom_left_image->getPixelFormat();
+        GLenum data_type = bottom_left_image->getDataType();
+        int packing = bottom_left_image->getPacking();
+
+        osg::ref_ptr<osg::Image> image = new osg::Image();
+        image->allocateImage(px_width, px_height, px_depth, pixel_format, data_type, packing);
+        image->copySubImage(0, px_height - bottom_left_image->t(), 0, bottom_left_image);
+
+        init(image, bbox);
+    }
+
+    void Orthophoto::init(osg::ref_ptr<osg::Image>& image, SGRect<double> bbox) {
         _texture = new osg::Texture2D(image);
         _texture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_EDGE);
         _texture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_EDGE);
@@ -145,30 +167,34 @@ namespace simgear {
         int bk_width = 1;
         int bk_height = 1;
 
+        std::vector<std::vector<osg::ref_ptr<osg::Image>>> images;
+        
+        std::vector<osg::ref_ptr<osg::Image>> first_row_images;
+        first_row_images.push_back(bottom_left_image);
         SGBucket current_bucket = bottom_left_bucket;
         while (actual_bbox.r() < desired_bbox.r()) {
             current_bucket = current_bucket.sibling(1, 0);
+            osg::ref_ptr<osg::Image> new_image = getBucketImage(current_bucket);
+            first_row_images.push_back(new_image);
             augmentBoundingBox(actual_bbox, current_bucket);
             bk_width++;
         }
+        images.push_back(first_row_images);
+
         current_bucket = bottom_left_bucket;
         while (actual_bbox.t() < desired_bbox.t()) {
+            std::vector<osg::ref_ptr<osg::Image>> row_images;
             current_bucket = current_bucket.sibling(0, 1);
+            for (int i = 0; i < bk_width; i++) {
+                SGBucket new_bucket = current_bucket.sibling(i, 0);
+                osg::ref_ptr<osg::Image> new_image = getBucketImage(new_bucket);
+                row_images.push_back(new_image);
+            }
+            images.push_back(row_images);
             augmentBoundingBox(actual_bbox, current_bucket);
             bk_height++;
         }
 
-        int px_width = bk_width * bottom_left_image->s();
-        int px_height = bk_height * bottom_left_image->t();
-        int px_depth = bottom_left_image->r();
-        GLenum pixel_format = bottom_left_image->getPixelFormat();
-        GLenum data_type = bottom_left_image->getDataType();
-        int packing = bottom_left_image->getPacking();
-
-        osg::ref_ptr<osg::Image> image = new osg::Image();
-        image->allocateImage(px_width, px_height, px_depth, pixel_format, data_type, packing);
-        image->copySubImage(0, px_height - bottom_left_image->t(), 0, bottom_left_image);
-
-        return new Orthophoto(image, actual_bbox);
+        return new Orthophoto(images, actual_bbox);
     }
 }
