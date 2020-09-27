@@ -139,8 +139,36 @@ namespace simgear {
             return new Orthophoto(bottom_left_image, actual_bbox);
         
 
-        // More complex case - we need to create a composite orthophoto
-        // For now, we leave it blank. (don't apply orthophoto)
-        return nullptr;
+        // More complex case - we create a composite orthophoto
+
+
+        int bk_width = 1;
+        int bk_height = 1;
+
+        SGBucket current_bucket = bottom_left_bucket;
+        while (actual_bbox.r() < desired_bbox.r()) {
+            current_bucket = current_bucket.sibling(1, 0);
+            augmentBoundingBox(actual_bbox, current_bucket);
+            bk_width++;
+        }
+        current_bucket = bottom_left_bucket;
+        while (actual_bbox.t() < desired_bbox.t()) {
+            current_bucket = current_bucket.sibling(0, 1);
+            augmentBoundingBox(actual_bbox, current_bucket);
+            bk_height++;
+        }
+
+        int px_width = bk_width * bottom_left_image->s();
+        int px_height = bk_height * bottom_left_image->t();
+        int px_depth = bottom_left_image->r();
+        GLenum pixel_format = bottom_left_image->getPixelFormat();
+        GLenum data_type = bottom_left_image->getDataType();
+        int packing = bottom_left_image->getPacking();
+
+        osg::ref_ptr<osg::Image> image = new osg::Image();
+        image->allocateImage(px_width, px_height, px_depth, pixel_format, data_type, packing);
+        image->copySubImage(0, px_height - bottom_left_image->t(), 0, bottom_left_image);
+
+        return new Orthophoto(image, actual_bbox);
     }
 }
