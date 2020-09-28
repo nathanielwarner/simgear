@@ -92,36 +92,39 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
     std::vector<SGVec2f> satellite_overlay_coords;
     osg::ref_ptr<Orthophoto> orthophoto = nullptr;
 
-    long index = strtol(osgDB::getSimpleFileName(osgDB::getNameLessExtension(path)).c_str(), NULL, 10);
-    if (index > 0) {
-      orthophoto = OrthophotoManager::instance()->getOrthophoto(index);
-    } else {
-      // Find the orthophoto by bounding box
+    if (usePhotoscenery) {
+      long index = strtol(osgDB::getSimpleFileName(osgDB::getNameLessExtension(path)).c_str(), NULL, 10);
+      if (index > 0) {
+        orthophoto = OrthophotoManager::instance()->getOrthophoto(index);
+      } else {
+        // Find the orthophoto by bounding box
 
-      SGRect<double> desired_bbox;
-      desired_bbox.setLeft(180.0);
-      desired_bbox.setRight(-180.0);
-      desired_bbox.setBottom(90.0);
-      desired_bbox.setTop(-90.0);
-      
-      // Find min/max lon/lat by brute force
-      for (unsigned i = 0; i < nodes.size(); ++i) {
-        SGGeod node_geod = SGGeod::fromCart(nodes[i] + center);
-        double lon_deg = node_geod.getLongitudeDeg();
-        double lat_deg = node_geod.getLatitudeDeg();
+        SGRect<double> desired_bbox;
+        desired_bbox.setLeft(180.0);
+        desired_bbox.setRight(-180.0);
+        desired_bbox.setBottom(90.0);
+        desired_bbox.setTop(-90.0);
+        
+        // Find min/max lon/lat by brute force
+        for (unsigned i = 0; i < nodes.size(); ++i) {
+          SGGeod node_geod = SGGeod::fromCart(nodes[i] + center);
+          double lon_deg = node_geod.getLongitudeDeg();
+          double lat_deg = node_geod.getLatitudeDeg();
 
-        if (lon_deg < desired_bbox.l())
-          desired_bbox.setLeft(lon_deg);
-        if (lon_deg > desired_bbox.r())
-          desired_bbox.setRight(lon_deg);
-        if (lat_deg < desired_bbox.b())
-          desired_bbox.setBottom(lat_deg);
-        if (lat_deg > desired_bbox.t())
-          desired_bbox.setTop(lat_deg);
+          if (lon_deg < desired_bbox.l())
+            desired_bbox.setLeft(lon_deg);
+          if (lon_deg > desired_bbox.r())
+            desired_bbox.setRight(lon_deg);
+          if (lat_deg < desired_bbox.b())
+            desired_bbox.setBottom(lat_deg);
+          if (lat_deg > desired_bbox.t())
+            desired_bbox.setTop(lat_deg);
+        }
+
+        orthophoto = OrthophotoManager::instance()->getOrthophoto(desired_bbox);
       }
-
-      orthophoto = OrthophotoManager::instance()->getOrthophoto(desired_bbox);
     }
+    
 
     // rotate the tiles so that the bounding boxes get nearly axis aligned.
     // this will help the collision tree's bounding boxes a bit ...
