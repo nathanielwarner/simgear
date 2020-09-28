@@ -45,7 +45,7 @@ namespace simgear {
                 osg::ref_ptr<osg::Image>& single_image = images[vertical][horiz];
                 if (single_image) {
                     single_image->scaleImage(single_width, single_height, bottom_left_image->r());
-                    image->copySubImage(horiz * single_width, vertical * single_height + single_height, 0, single_image);
+                    image->copySubImage(horiz * single_width, (bk_height - 1 - vertical) * single_height, 0, single_image);
                 }
             }
         }
