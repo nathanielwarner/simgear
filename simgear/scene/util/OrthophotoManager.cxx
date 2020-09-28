@@ -25,11 +25,13 @@ namespace simgear {
     }
 
     Orthophoto::Orthophoto(std::vector<std::vector<osg::ref_ptr<osg::Image>>>& images, SGRect<double> bbox) {
-        osg::ref_ptr<osg::Image> bottom_left_image = images[0][0];
+        osg::ref_ptr<osg::Image>& bottom_left_image = images[0][0];
         int bk_height = images.size();
         int bk_width = images[0].size();
-        int px_width = bk_width * bottom_left_image->s();
-        int px_height = bk_height * bottom_left_image->t();
+        int single_height = bottom_left_image->t();
+        int single_width = bottom_left_image->s();
+        int px_width = bk_width * single_width;
+        int px_height = bk_height * single_height;
         int px_depth = bottom_left_image->r();
         GLenum pixel_format = bottom_left_image->getPixelFormat();
         GLenum data_type = bottom_left_image->getDataType();
@@ -37,7 +39,16 @@ namespace simgear {
 
         osg::ref_ptr<osg::Image> image = new osg::Image();
         image->allocateImage(px_width, px_height, px_depth, pixel_format, data_type, packing);
-        image->copySubImage(0, px_height - bottom_left_image->t(), 0, bottom_left_image);
+
+        for (unsigned int vertical = 0; vertical < images.size(); vertical++) {
+            for (unsigned int horiz = 0; horiz < images[vertical].size(); horiz++) {
+                osg::ref_ptr<osg::Image>& single_image = images[vertical][horiz];
+                if (single_image) {
+                    single_image->scaleImage(single_width, single_height, bottom_left_image->r());
+                    image->copySubImage(horiz * single_width, vertical * single_height + single_height, 0, single_image);
+                }
+            }
+        }
 
         init(image, bbox);
     }
@@ -148,6 +159,7 @@ namespace simgear {
         desired_bbox.setTop(desired_bbox.t() - eps);
 
         SGBucket bottom_left_bucket(SGGeod::fromDeg(desired_bbox.l(), desired_bbox.b()));
+        const double bucket_width = bottom_left_bucket.get_width();
         osg::ref_ptr<osg::Image> bottom_left_image = getBucketImage(bottom_left_bucket);
 
         if (!bottom_left_image)
@@ -185,6 +197,13 @@ namespace simgear {
         while (actual_bbox.t() < desired_bbox.t()) {
             std::vector<osg::ref_ptr<osg::Image>> row_images;
             current_bucket = current_bucket.sibling(0, 1);
+
+            if (current_bucket.get_width() != bucket_width) {
+                // We've crossed into territory that has different tile spans!
+                // Currently, we don't handle this situation.
+                return nullptr;
+            }
+
             for (int i = 0; i < bk_width; i++) {
                 SGBucket new_bucket = current_bucket.sibling(i, 0);
                 osg::ref_ptr<osg::Image> new_image = getBucketImage(new_bucket);
