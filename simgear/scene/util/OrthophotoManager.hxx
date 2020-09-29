@@ -72,7 +72,7 @@ namespace simgear {
         void addSceneryPath(const SGPath& path);
         void clearSceneryPaths();
         osg::ref_ptr<Orthophoto> getOrthophoto(const SGBucket& bucket);
-        osg::ref_ptr<Orthophoto> getOrthophoto(OrthophotoBounds desired_bbox);
+        osg::ref_ptr<Orthophoto> getOrthophoto(const std::vector<SGVec3d>& nodes, const SGVec3d& center);
     };
 }
 

@@ -98,20 +98,7 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
         const SGBucket bucket(index);
         orthophoto = OrthophotoManager::instance()->getOrthophoto(bucket);
       } else {
-        // Find the orthophoto by bounding box
-
-        OrthophotoBounds desired_bbox;
-        
-        // Find min/max lon/lat by brute force
-        for (const auto& node : nodes) {
-          const SGGeod node_geod = SGGeod::fromCart(node + center);
-          const double lon_deg = node_geod.getLongitudeDeg();
-          const double lat_deg = node_geod.getLatitudeDeg();
-
-          desired_bbox.expandToInclude(lon_deg, lat_deg);
-        }
-
-        orthophoto = OrthophotoManager::instance()->getOrthophoto(desired_bbox);
+        orthophoto = OrthophotoManager::instance()->getOrthophoto(nodes, center);
       }
     }
     

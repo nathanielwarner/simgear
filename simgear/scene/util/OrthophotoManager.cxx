@@ -146,7 +146,17 @@ namespace simgear {
         return new Orthophoto(image, bbox);
     }
 
-    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(OrthophotoBounds desired_bbox) {
+    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(const std::vector<SGVec3d>& nodes, const SGVec3d& center) {
+        
+        OrthophotoBounds desired_bbox;
+        
+        for (const auto& node : nodes) {
+          const SGGeod node_geod = SGGeod::fromCart(node + center);
+          const double lon_deg = node_geod.getLongitudeDeg();
+          const double lat_deg = node_geod.getLatitudeDeg();
+
+          desired_bbox.expandToInclude(lon_deg, lat_deg);
+        }
         
         double eps = SG_EPSILON * SGD_RADIANS_TO_DEGREES;
         desired_bbox.minLon += eps;
