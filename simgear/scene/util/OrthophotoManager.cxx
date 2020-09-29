@@ -20,11 +20,30 @@
 #include "OrthophotoManager.hxx"
 
 namespace simgear {
-    Orthophoto::Orthophoto(ImageRef& image, SGRectd bbox) {
+
+    OrthophotoBounds::OrthophotoBounds() {
+        minLon = 180.0;
+        maxLon = -180.0;
+        minLat = 90.0;
+        maxLat = -90.0;
+    }
+    
+    void OrthophotoBounds::expandToInclude(double lon, double lat) {
+        if (lon < minLon)
+            minLon = lon;
+        if (lon > maxLon)
+            maxLon = lon;
+        if (lat < minLat)
+            minLat = lat;
+        if (lat > maxLat)
+            maxLat = lat;
+    }
+
+    Orthophoto::Orthophoto(ImageRef& image, OrthophotoBounds bbox) {
         init(image, bbox);
     }
 
-    Orthophoto::Orthophoto(ImageRefCollection2d& images, SGRectd bbox) {
+    Orthophoto::Orthophoto(ImageRefCollection2d& images, OrthophotoBounds bbox) {
         ImageRef& bottom_left_image = images[0][0];
         int bk_height = images.size();
         int bk_width = images[0].size();
@@ -53,7 +72,7 @@ namespace simgear {
         init(image, bbox);
     }
 
-    void Orthophoto::init(ImageRef& image, SGRectd bbox) {
+    void Orthophoto::init(ImageRef& image, OrthophotoBounds bbox) {
         _texture = new osg::Texture2D(image);
         _texture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_EDGE);
         _texture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_EDGE);
@@ -66,7 +85,7 @@ namespace simgear {
         return _texture;
     }
 
-    SGRectd Orthophoto::getBbox() {
+    OrthophotoBounds Orthophoto::getBbox() {
         return _bbox;
     }
 
@@ -87,7 +106,7 @@ namespace simgear {
         _sceneryPaths.clear();
     }
 
-    void augmentBoundingBox(SGRectd& bbox, SGBucket& new_bucket) {
+    void augmentBoundingBox(OrthophotoBounds& bbox, SGBucket& new_bucket) {
         double center_lon = new_bucket.get_center_lon();
         double center_lat = new_bucket.get_center_lat();
         double width = new_bucket.get_width();
@@ -98,14 +117,8 @@ namespace simgear {
         double bottom = center_lat - height / 2;
         double top = center_lat + height / 2;
 
-        if (bbox.l() > left)
-            bbox.setLeft(left);
-        if (bbox.r() < right)
-            bbox.setRight(right);
-        if (bbox.b() > bottom)
-            bbox.setBottom(bottom);
-        if (bbox.t() < top)
-            bbox.setTop(top);
+        bbox.expandToInclude(left, bottom);
+        bbox.expandToInclude(right, top);
     }
 
     ImageRef OrthophotoManager::getBucketImage(SGBucket bucket) {
@@ -129,15 +142,6 @@ namespace simgear {
         return image;
     }
 
-    SGRectd OrthophotoManager::initBoundingBox() {
-        SGRectd bbox;
-        bbox.setLeft(180.0);
-        bbox.setBottom(90.0);
-        bbox.setRight(-180.0);
-        bbox.setTop(-90.0);
-        return bbox;
-    }
-
     osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(long bucket_index) {
         SGBucket bucket(bucket_index);
         ImageRef image = getBucketImage(bucket);
@@ -145,32 +149,32 @@ namespace simgear {
         if (!image)
             return nullptr;
 
-        SGRectd bbox = initBoundingBox();
+        OrthophotoBounds bbox;
         augmentBoundingBox(bbox, bucket);
         
         return new Orthophoto(image, bbox);
     }
 
-    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(SGRectd desired_bbox) {
+    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(OrthophotoBounds desired_bbox) {
         
         double eps = SG_EPSILON * SGD_RADIANS_TO_DEGREES;
-        desired_bbox.setLeft(desired_bbox.l() + eps);
-        desired_bbox.setBottom(desired_bbox.b() + eps);
-        desired_bbox.setRight(desired_bbox.r() - eps);
-        desired_bbox.setTop(desired_bbox.t() - eps);
+        desired_bbox.minLon += eps;
+        desired_bbox.minLat += eps;
+        desired_bbox.maxLon -= eps;
+        desired_bbox.maxLat -= eps;
 
-        SGBucket bottom_left_bucket(SGGeod::fromDeg(desired_bbox.l(), desired_bbox.b()));
+        SGBucket bottom_left_bucket(SGGeod::fromDeg(desired_bbox.minLon, desired_bbox.minLat));
         const double bucket_width = bottom_left_bucket.get_width();
         ImageRef bottom_left_image = getBucketImage(bottom_left_bucket);
 
         if (!bottom_left_image)
             return nullptr;
         
-        SGRectd actual_bbox = initBoundingBox();
+        OrthophotoBounds actual_bbox;
         augmentBoundingBox(actual_bbox, bottom_left_bucket);
 
         // Simplest case - we already have the full orthophoto
-        if (actual_bbox.r() > desired_bbox.r() && actual_bbox.t() > desired_bbox.t())
+        if (actual_bbox.maxLon > desired_bbox.maxLon && actual_bbox.maxLat > desired_bbox.maxLat)
             return new Orthophoto(bottom_left_image, actual_bbox);
         
 
@@ -185,7 +189,7 @@ namespace simgear {
         ImageRefVec first_row_images;
         first_row_images.push_back(bottom_left_image);
         SGBucket current_bucket = bottom_left_bucket;
-        while (actual_bbox.r() < desired_bbox.r()) {
+        while (actual_bbox.maxLon < desired_bbox.maxLon) {
             current_bucket = current_bucket.sibling(1, 0);
             ImageRef new_image = getBucketImage(current_bucket);
             first_row_images.push_back(new_image);
@@ -195,7 +199,7 @@ namespace simgear {
         images.push_back(first_row_images);
 
         current_bucket = bottom_left_bucket;
-        while (actual_bbox.t() < desired_bbox.t()) {
+        while (actual_bbox.maxLat < desired_bbox.maxLat) {
             ImageRefVec row_images;
             current_bucket = current_bucket.sibling(0, 1);
 

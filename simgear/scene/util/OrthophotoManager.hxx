@@ -29,7 +29,6 @@
 #include <osgDB/ReadFile>
 #include <simgear/misc/sg_path.hxx>
 #include <simgear/bucket/newbucket.hxx>
-#include <simgear/math/SGRect.hxx>
 #include "SGSceneFeatures.hxx"
 #include "OsgSingleton.hxx"
 
@@ -39,16 +38,28 @@ namespace simgear {
     using ImageRefVec = std::vector<ImageRef>;
     using ImageRefCollection2d = std::vector<ImageRefVec>;
 
+    struct OrthophotoBounds {
+        double minLon;
+        double maxLon;
+        double minLat;
+        double maxLat;
+
+        static OrthophotoBounds fromBucket(SGBucket bucket);
+
+        OrthophotoBounds();
+        void expandToInclude(double lon, double lat);
+    };
+
     class Orthophoto : public osg::Referenced {
     private:
         osg::ref_ptr<osg::Texture2D> _texture;
-        SGRectd _bbox;
-        void init(ImageRef& image, SGRectd bbox);
+        OrthophotoBounds _bbox;
+        void init(ImageRef& image, OrthophotoBounds bbox);
     public:
-        Orthophoto(ImageRef& image, SGRectd bbox);
-        Orthophoto(ImageRefCollection2d& images, SGRectd bbox);
+        Orthophoto(ImageRef& image, OrthophotoBounds bbox);
+        Orthophoto(ImageRefCollection2d& images, OrthophotoBounds bbox);
         osg::ref_ptr<osg::Texture2D> getTexture();
-        SGRectd getBbox();
+        OrthophotoBounds getBbox();
     };
 
     class OrthophotoManager : public osg::Referenced {
@@ -58,11 +69,10 @@ namespace simgear {
         ImageRef getBucketImage(SGBucket bucket);
     public:
         static OrthophotoManager* instance();
-        static SGRectd initBoundingBox();
         void addSceneryPath(const SGPath path);
         void clearSceneryPaths();
         osg::ref_ptr<Orthophoto> getOrthophoto(long bucket_index);
-        osg::ref_ptr<Orthophoto> getOrthophoto(SGRectd desired_bbox);
+        osg::ref_ptr<Orthophoto> getOrthophoto(OrthophotoBounds desired_bbox);
     };
 }
 
