@@ -20,12 +20,12 @@
 #include "OrthophotoManager.hxx"
 
 namespace simgear {
-    Orthophoto::Orthophoto(osg::ref_ptr<osg::Image>& image, SGRect<double> bbox) {
+    Orthophoto::Orthophoto(ImageRef& image, SGRectd bbox) {
         init(image, bbox);
     }
 
-    Orthophoto::Orthophoto(std::vector<std::vector<osg::ref_ptr<osg::Image>>>& images, SGRect<double> bbox) {
-        osg::ref_ptr<osg::Image>& bottom_left_image = images[0][0];
+    Orthophoto::Orthophoto(ImageRefCollection2d& images, SGRectd bbox) {
+        ImageRef& bottom_left_image = images[0][0];
         int bk_height = images.size();
         int bk_width = images[0].size();
         int single_height = bottom_left_image->t();
@@ -37,12 +37,12 @@ namespace simgear {
         GLenum data_type = bottom_left_image->getDataType();
         int packing = bottom_left_image->getPacking();
 
-        osg::ref_ptr<osg::Image> image = new osg::Image();
+        ImageRef image = new osg::Image();
         image->allocateImage(px_width, px_height, px_depth, pixel_format, data_type, packing);
 
         for (unsigned int vertical = 0; vertical < images.size(); vertical++) {
             for (unsigned int horiz = 0; horiz < images[vertical].size(); horiz++) {
-                osg::ref_ptr<osg::Image>& single_image = images[vertical][horiz];
+                ImageRef& single_image = images[vertical][horiz];
                 if (single_image) {
                     single_image->scaleImage(single_width, single_height, bottom_left_image->r());
                     image->copySubImage(horiz * single_width, (bk_height - 1 - vertical) * single_height, 0, single_image);
@@ -53,7 +53,7 @@ namespace simgear {
         init(image, bbox);
     }
 
-    void Orthophoto::init(osg::ref_ptr<osg::Image>& image, SGRect<double> bbox) {
+    void Orthophoto::init(ImageRef& image, SGRectd bbox) {
         _texture = new osg::Texture2D(image);
         _texture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_EDGE);
         _texture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_EDGE);
@@ -66,7 +66,7 @@ namespace simgear {
         return _texture;
     }
 
-    SGRect<double> Orthophoto::getBbox() {
+    SGRectd Orthophoto::getBbox() {
         return _bbox;
     }
 
@@ -75,7 +75,7 @@ namespace simgear {
     }
 
     void OrthophotoManager::addSceneryPath(const SGPath path) {
-        for (SGPath existingPath : _sceneryPaths) {
+        for (const SGPath& existingPath : _sceneryPaths) {
             if (path == existingPath) {
                 return;
             }
@@ -87,11 +87,12 @@ namespace simgear {
         _sceneryPaths.clear();
     }
 
-    void augmentBoundingBox(SGRect<double>& bbox, SGBucket& newBucket) {
-        double center_lon = newBucket.get_center_lon();
-        double center_lat = newBucket.get_center_lat();
-        double width = newBucket.get_width();
-        double height = newBucket.get_height();
+    void augmentBoundingBox(SGRectd& bbox, SGBucket& new_bucket) {
+        double center_lon = new_bucket.get_center_lon();
+        double center_lat = new_bucket.get_center_lat();
+        double width = new_bucket.get_width();
+        double height = new_bucket.get_height();
+
         double left = center_lon - width / 2;
         double right = center_lon + width / 2;
         double bottom = center_lat - height / 2;
@@ -107,15 +108,15 @@ namespace simgear {
             bbox.setTop(top);
     }
 
-    osg::ref_ptr<osg::Image> OrthophotoManager::getBucketImage(SGBucket bucket) {
+    ImageRef OrthophotoManager::getBucketImage(SGBucket bucket) {
         long index = bucket.gen_index();
 
-        osg::ref_ptr<osg::Image>& image = _bucketImages[index];
+        ImageRef& image = _bucketImages[index];
 
         if (!image) {
-            std::string bucketPath = bucket.gen_base_path();
+            const std::string bucketPath = bucket.gen_base_path();
 
-            for (SGPath sceneryPath : _sceneryPaths) {
+            for (const SGPath& sceneryPath : _sceneryPaths) {
                 SGPath path = sceneryPath / "Orthophotos" / bucketPath / std::to_string(index);
                 path.concat(".png");
                 if (path.exists()) {
@@ -128,8 +129,8 @@ namespace simgear {
         return image;
     }
 
-    SGRect<double> initBoundingBox() {
-        SGRect<double> bbox;
+    SGRectd OrthophotoManager::initBoundingBox() {
+        SGRectd bbox;
         bbox.setLeft(180.0);
         bbox.setBottom(90.0);
         bbox.setRight(-180.0);
@@ -139,18 +140,18 @@ namespace simgear {
 
     osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(long bucket_index) {
         SGBucket bucket(bucket_index);
-        osg::ref_ptr<osg::Image> image = getBucketImage(bucket);
+        ImageRef image = getBucketImage(bucket);
 
         if (!image)
             return nullptr;
 
-        SGRect<double> bbox = initBoundingBox();
+        SGRectd bbox = initBoundingBox();
         augmentBoundingBox(bbox, bucket);
         
         return new Orthophoto(image, bbox);
     }
 
-    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(SGRect<double> desired_bbox) {
+    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(SGRectd desired_bbox) {
         
         double eps = SG_EPSILON * SGD_RADIANS_TO_DEGREES;
         desired_bbox.setLeft(desired_bbox.l() + eps);
@@ -160,12 +161,12 @@ namespace simgear {
 
         SGBucket bottom_left_bucket(SGGeod::fromDeg(desired_bbox.l(), desired_bbox.b()));
         const double bucket_width = bottom_left_bucket.get_width();
-        osg::ref_ptr<osg::Image> bottom_left_image = getBucketImage(bottom_left_bucket);
+        ImageRef bottom_left_image = getBucketImage(bottom_left_bucket);
 
         if (!bottom_left_image)
             return nullptr;
         
-        SGRect<double> actual_bbox = initBoundingBox();
+        SGRectd actual_bbox = initBoundingBox();
         augmentBoundingBox(actual_bbox, bottom_left_bucket);
 
         // Simplest case - we already have the full orthophoto
@@ -179,14 +180,14 @@ namespace simgear {
         int bk_width = 1;
         int bk_height = 1;
 
-        std::vector<std::vector<osg::ref_ptr<osg::Image>>> images;
+        ImageRefCollection2d images;
         
-        std::vector<osg::ref_ptr<osg::Image>> first_row_images;
+        ImageRefVec first_row_images;
         first_row_images.push_back(bottom_left_image);
         SGBucket current_bucket = bottom_left_bucket;
         while (actual_bbox.r() < desired_bbox.r()) {
             current_bucket = current_bucket.sibling(1, 0);
-            osg::ref_ptr<osg::Image> new_image = getBucketImage(current_bucket);
+            ImageRef new_image = getBucketImage(current_bucket);
             first_row_images.push_back(new_image);
             augmentBoundingBox(actual_bbox, current_bucket);
             bk_width++;
@@ -195,7 +196,7 @@ namespace simgear {
 
         current_bucket = bottom_left_bucket;
         while (actual_bbox.t() < desired_bbox.t()) {
-            std::vector<osg::ref_ptr<osg::Image>> row_images;
+            ImageRefVec row_images;
             current_bucket = current_bucket.sibling(0, 1);
 
             if (current_bucket.get_width() != bucket_width) {
@@ -206,7 +207,7 @@ namespace simgear {
 
             for (int i = 0; i < bk_width; i++) {
                 SGBucket new_bucket = current_bucket.sibling(i, 0);
-                osg::ref_ptr<osg::Image> new_image = getBucketImage(new_bucket);
+                ImageRef new_image = getBucketImage(new_bucket);
                 row_images.push_back(new_image);
             }
             images.push_back(row_images);

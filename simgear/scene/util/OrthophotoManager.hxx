@@ -34,29 +34,35 @@
 #include "OsgSingleton.hxx"
 
 namespace simgear {
+
+    using ImageRef = osg::ref_ptr<osg::Image>;
+    using ImageRefVec = std::vector<ImageRef>;
+    using ImageRefCollection2d = std::vector<ImageRefVec>;
+
     class Orthophoto : public osg::Referenced {
     private:
         osg::ref_ptr<osg::Texture2D> _texture;
-        SGRect<double> _bbox;
-        void init(osg::ref_ptr<osg::Image>& image, SGRect<double> bbox);
+        SGRectd _bbox;
+        void init(ImageRef& image, SGRectd bbox);
     public:
-        Orthophoto(osg::ref_ptr<osg::Image>& image, SGRect<double> bbox);
-        Orthophoto(std::vector<std::vector<osg::ref_ptr<osg::Image>>>& images, SGRect<double> bbox);
+        Orthophoto(ImageRef& image, SGRectd bbox);
+        Orthophoto(ImageRefCollection2d& images, SGRectd bbox);
         osg::ref_ptr<osg::Texture2D> getTexture();
-        SGRect<double> getBbox();
+        SGRectd getBbox();
     };
 
     class OrthophotoManager : public osg::Referenced {
     private:
         std::deque<SGPath> _sceneryPaths;
-        std::unordered_map<long, osg::ref_ptr<osg::Image>> _bucketImages;
-        osg::ref_ptr<osg::Image> getBucketImage(SGBucket bucket);
+        std::unordered_map<long, ImageRef> _bucketImages;
+        ImageRef getBucketImage(SGBucket bucket);
     public:
         static OrthophotoManager* instance();
+        static SGRectd initBoundingBox();
         void addSceneryPath(const SGPath path);
         void clearSceneryPaths();
         osg::ref_ptr<Orthophoto> getOrthophoto(long bucket_index);
-        osg::ref_ptr<Orthophoto> getOrthophoto(SGRect<double> desired_bbox);
+        osg::ref_ptr<Orthophoto> getOrthophoto(SGRectd desired_bbox);
     };
 }
 

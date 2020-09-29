@@ -99,15 +99,11 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
       } else {
         // Find the orthophoto by bounding box
 
-        SGRect<double> desired_bbox;
-        desired_bbox.setLeft(180.0);
-        desired_bbox.setRight(-180.0);
-        desired_bbox.setBottom(90.0);
-        desired_bbox.setTop(-90.0);
+        SGRectd desired_bbox = OrthophotoManager::initBoundingBox();
         
         // Find min/max lon/lat by brute force
-        for (unsigned i = 0; i < nodes.size(); ++i) {
-          SGGeod node_geod = SGGeod::fromCart(nodes[i] + center);
+        for (const auto& node : nodes) {
+          SGGeod node_geod = SGGeod::fromCart(node + center);
           double lon_deg = node_geod.getLongitudeDeg();
           double lat_deg = node_geod.getLatitudeDeg();
 
@@ -132,7 +128,7 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
       if (orthophoto) {
         // Generate TexCoords for Overlay
         SGGeod node_geod = SGGeod::fromCart(nodes[i] + center);
-        SGRect<double> actual_bbox = orthophoto->getBbox();
+        SGRectd actual_bbox = orthophoto->getBbox();
         float x = (node_geod.getLongitudeDeg() - actual_bbox.l()) / (actual_bbox.r() - actual_bbox.l());
         float y = (actual_bbox.t() - node_geod.getLatitudeDeg()) / (actual_bbox.t() - actual_bbox.b());
         satellite_overlay_coords.push_back(SGVec2f(x, y));
