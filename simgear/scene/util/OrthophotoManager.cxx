@@ -28,7 +28,7 @@ namespace simgear {
         maxLat = -90.0;
     }
     
-    void OrthophotoBounds::expandToInclude(double lon, double lat) {
+    void OrthophotoBounds::expandToInclude(const double lon, const double lat) {
         if (lon < minLon)
             minLon = lon;
         if (lon > maxLon)
@@ -39,11 +39,11 @@ namespace simgear {
             maxLat = lat;
     }
 
-    Orthophoto::Orthophoto(ImageRef& image, OrthophotoBounds bbox) {
+    Orthophoto::Orthophoto(const ImageRef& image, const OrthophotoBounds& bbox) {
         init(image, bbox);
     }
 
-    Orthophoto::Orthophoto(ImageRefCollection2d& images, OrthophotoBounds bbox) {
+    Orthophoto::Orthophoto(ImageRefCollection2d& images, const OrthophotoBounds& bbox) {
         ImageRef& bottom_left_image = images[0][0];
         int bk_height = images.size();
         int bk_width = images[0].size();
@@ -72,7 +72,7 @@ namespace simgear {
         init(image, bbox);
     }
 
-    void Orthophoto::init(ImageRef& image, OrthophotoBounds bbox) {
+    void Orthophoto::init(const ImageRef& image, const OrthophotoBounds& bbox) {
         _texture = new osg::Texture2D(image);
         _texture->setWrap(osg::Texture::WrapParameter::WRAP_S, osg::Texture::WrapMode::CLAMP_TO_EDGE);
         _texture->setWrap(osg::Texture::WrapParameter::WRAP_T, osg::Texture::WrapMode::CLAMP_TO_EDGE);
@@ -81,20 +81,12 @@ namespace simgear {
         _bbox = bbox;
     }
 
-    osg::ref_ptr<osg::Texture2D> Orthophoto::getTexture() {
-        return _texture;
-    }
-
-    OrthophotoBounds Orthophoto::getBbox() {
-        return _bbox;
-    }
-
     OrthophotoManager* OrthophotoManager::instance() {
         return SingletonRefPtr<OrthophotoManager>::instance();
     }
 
-    void OrthophotoManager::addSceneryPath(const SGPath path) {
-        for (const SGPath& existingPath : _sceneryPaths) {
+    void OrthophotoManager::addSceneryPath(const SGPath& path) {
+        for (const auto& existingPath : _sceneryPaths) {
             if (path == existingPath) {
                 return;
             }
@@ -106,7 +98,7 @@ namespace simgear {
         _sceneryPaths.clear();
     }
 
-    void augmentBoundingBox(OrthophotoBounds& bbox, SGBucket& new_bucket) {
+    void augmentBoundingBox(OrthophotoBounds& bbox, const SGBucket& new_bucket) {
         double center_lon = new_bucket.get_center_lon();
         double center_lat = new_bucket.get_center_lat();
         double width = new_bucket.get_width();
@@ -121,7 +113,7 @@ namespace simgear {
         bbox.expandToInclude(right, top);
     }
 
-    ImageRef OrthophotoManager::getBucketImage(SGBucket bucket) {
+    ImageRef OrthophotoManager::getBucketImage(const SGBucket& bucket) {
         long index = bucket.gen_index();
 
         ImageRef& image = _bucketImages[index];
@@ -129,7 +121,7 @@ namespace simgear {
         if (!image) {
             const std::string bucketPath = bucket.gen_base_path();
 
-            for (const SGPath& sceneryPath : _sceneryPaths) {
+            for (const auto& sceneryPath : _sceneryPaths) {
                 SGPath path = sceneryPath / "Orthophotos" / bucketPath / std::to_string(index);
                 path.concat(".png");
                 if (path.exists()) {
@@ -142,8 +134,7 @@ namespace simgear {
         return image;
     }
 
-    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(long bucket_index) {
-        SGBucket bucket(bucket_index);
+    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(const SGBucket& bucket) {
         ImageRef image = getBucketImage(bucket);
 
         if (!image)

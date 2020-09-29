@@ -93,9 +93,10 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
     osg::ref_ptr<Orthophoto> orthophoto = nullptr;
 
     if (usePhotoscenery) {
-      long index = strtol(osgDB::getSimpleFileName(osgDB::getNameLessExtension(path)).c_str(), NULL, 10);
-      if (index > 0) {
-        orthophoto = OrthophotoManager::instance()->getOrthophoto(index);
+      const long index = strtol(osgDB::getSimpleFileName(osgDB::getNameLessExtension(path)).c_str(), NULL, 10);
+      if (index > 0) { // TODO: isn't index 0 valid?
+        const SGBucket bucket(index);
+        orthophoto = OrthophotoManager::instance()->getOrthophoto(bucket);
       } else {
         // Find the orthophoto by bounding box
 
@@ -103,9 +104,9 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
         
         // Find min/max lon/lat by brute force
         for (const auto& node : nodes) {
-          SGGeod node_geod = SGGeod::fromCart(node + center);
-          double lon_deg = node_geod.getLongitudeDeg();
-          double lat_deg = node_geod.getLatitudeDeg();
+          const SGGeod node_geod = SGGeod::fromCart(node + center);
+          const double lon_deg = node_geod.getLongitudeDeg();
+          const double lat_deg = node_geod.getLatitudeDeg();
 
           desired_bbox.expandToInclude(lon_deg, lat_deg);
         }
@@ -120,10 +121,10 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
     for (unsigned i = 0; i < nodes.size(); ++i) {
       if (orthophoto) {
         // Generate TexCoords for Overlay
-        SGGeod node_geod = SGGeod::fromCart(nodes[i] + center);
-        OrthophotoBounds actual_bbox = orthophoto->getBbox();
-        float x = (node_geod.getLongitudeDeg() - actual_bbox.minLon) / (actual_bbox.maxLon - actual_bbox.minLon);
-        float y = (actual_bbox.maxLat - node_geod.getLatitudeDeg()) / (actual_bbox.maxLat - actual_bbox.minLat);
+        const SGGeod node_geod = SGGeod::fromCart(nodes[i] + center);
+        const OrthophotoBounds actual_bbox = orthophoto->getBbox();
+        const float x = (node_geod.getLongitudeDeg() - actual_bbox.minLon) / (actual_bbox.maxLon - actual_bbox.minLon);
+        const float y = (actual_bbox.maxLat - node_geod.getLatitudeDeg()) / (actual_bbox.maxLat - actual_bbox.minLat);
         satellite_overlay_coords.push_back(SGVec2f(x, y));
       } else {
         satellite_overlay_coords.push_back(SGVec2f(0.0, 0.0));

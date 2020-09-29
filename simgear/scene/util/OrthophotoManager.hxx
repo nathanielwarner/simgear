@@ -44,34 +44,34 @@ namespace simgear {
         double minLat;
         double maxLat;
 
-        static OrthophotoBounds fromBucket(SGBucket bucket);
+        static OrthophotoBounds fromBucket(const SGBucket& bucket);
 
         OrthophotoBounds();
-        void expandToInclude(double lon, double lat);
+        void expandToInclude(const double lon, const double lat);
     };
 
     class Orthophoto : public osg::Referenced {
     private:
         osg::ref_ptr<osg::Texture2D> _texture;
         OrthophotoBounds _bbox;
-        void init(ImageRef& image, OrthophotoBounds bbox);
+        void init(const ImageRef& image, const OrthophotoBounds& bbox);
     public:
-        Orthophoto(ImageRef& image, OrthophotoBounds bbox);
-        Orthophoto(ImageRefCollection2d& images, OrthophotoBounds bbox);
-        osg::ref_ptr<osg::Texture2D> getTexture();
-        OrthophotoBounds getBbox();
+        Orthophoto(const ImageRef& image, const OrthophotoBounds& bbox);
+        Orthophoto(ImageRefCollection2d& images, const OrthophotoBounds& bbox);
+        osg::ref_ptr<osg::Texture2D> getTexture() const { return _texture; };
+        OrthophotoBounds getBbox() const { return _bbox; };
     };
 
     class OrthophotoManager : public osg::Referenced {
     private:
         std::deque<SGPath> _sceneryPaths;
         std::unordered_map<long, ImageRef> _bucketImages;
-        ImageRef getBucketImage(SGBucket bucket);
+        ImageRef getBucketImage(const SGBucket& bucket);
     public:
         static OrthophotoManager* instance();
-        void addSceneryPath(const SGPath path);
+        void addSceneryPath(const SGPath& path);
         void clearSceneryPaths();
-        osg::ref_ptr<Orthophoto> getOrthophoto(long bucket_index);
+        osg::ref_ptr<Orthophoto> getOrthophoto(const SGBucket& bucket);
         osg::ref_ptr<Orthophoto> getOrthophoto(OrthophotoBounds desired_bbox);
     };
 }
