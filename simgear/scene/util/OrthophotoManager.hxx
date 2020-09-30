@@ -42,12 +42,15 @@ namespace simgear {
 
     class OrthophotoBounds {
     private:
-        double _minLon = SGLimitsd::max();
-        double _maxLon = SGLimitsd::lowest();
+        double _minNegLon = SGLimitsd::max();
+        double _minPosLon = SGLimitsd::max();
+        double _maxNegLon = SGLimitsd::lowest();
+        double _maxPosLon = SGLimitsd::lowest();
         double _minLat = SGLimitsd::max();
         double _maxLat = SGLimitsd::lowest();
 
-        void warnIfInvalid() const;
+        enum Hemisphere {Eastern, Western, StraddlingPm, StraddlingIdl, Invalid} _hemisphere = Invalid;
+        void _updateHemisphere();
 
     public:
         static OrthophotoBounds fromBucket(const SGBucket& bucket);
