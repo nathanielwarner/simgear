@@ -50,10 +50,10 @@ namespace simgear {
         const osg::ref_ptr<Orthophoto>& some_orthophoto = orthophotos[0];
         const ImageRef& some_image = some_orthophoto->_image;
         const OrthophotoBounds& some_bbox = some_orthophoto->getBbox();
-        const double degs_to_pixels = some_image->s() / (some_bbox.maxLon - some_bbox.minLon);
+        const double degs_to_pixels = some_image->s() / some_bbox.getWidth();
         
-        const int total_width = degs_to_pixels * (_bbox.maxLon - _bbox.minLon);
-        const int total_height = degs_to_pixels * (_bbox.maxLat - _bbox.minLat);
+        const int total_width = degs_to_pixels * _bbox.getWidth();
+        const int total_height = degs_to_pixels * _bbox.getHeight();
 
         const int depth = some_image->r();
         GLenum pixel_format = some_image->getPixelFormat();
@@ -66,11 +66,11 @@ namespace simgear {
         for (const auto& orthophoto : orthophotos) {
             ImageRef sub_image = orthophoto->_image;
             const OrthophotoBounds& bounds = orthophoto->getBbox();
-            const int width = degs_to_pixels * (bounds.maxLon - bounds.minLon);
-            const int height = degs_to_pixels * (bounds.maxLat - bounds.minLat);
+            const int width = degs_to_pixels * bounds.getWidth();
+            const int height = degs_to_pixels * bounds.getHeight();
             sub_image->scaleImage(width, height, depth);
-            const int s_offset = degs_to_pixels * (bounds.minLon - _bbox.minLon);
-            const int t_offset = degs_to_pixels * (_bbox.maxLat - bounds.maxLat);
+            const int s_offset = degs_to_pixels * (bounds.getMinLon() - _bbox.getMinLon());
+            const int t_offset = degs_to_pixels * (_bbox.getMaxLat() - bounds.getMaxLat());
             
             _image->copySubImage(s_offset, t_offset, 0, sub_image);
         }

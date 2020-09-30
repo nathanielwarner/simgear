@@ -38,13 +38,23 @@ namespace simgear {
     using ImageRefVec = std::vector<ImageRef>;
     using ImageRefCollection2d = std::vector<ImageRefVec>;
 
-    struct OrthophotoBounds {
+    class OrthophotoBounds {
+    private:
         double minLon = 180.0;
         double maxLon = -180.0;
         double minLat = 90.0;
         double maxLat = -90.0;
 
+    public:
         static OrthophotoBounds fromBucket(const SGBucket& bucket);
+
+        double getMinLon() const { return minLon; }
+        double getMaxLon() const { return maxLon; }
+        double getMinLat() const { return minLat; }
+        double getMaxLat() const { return maxLat; }
+
+        double getWidth() const { return maxLon - minLon; }
+        double getHeight() const { return maxLat - minLat; }
 
         void expandToInclude(const double lon, const double lat);
         void absorb(const OrthophotoBounds& bounds);
