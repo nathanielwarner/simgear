@@ -39,26 +39,25 @@ namespace simgear {
     using ImageRefCollection2d = std::vector<ImageRefVec>;
 
     struct OrthophotoBounds {
-        double minLon;
-        double maxLon;
-        double minLat;
-        double maxLat;
+        double minLon = 180.0;
+        double maxLon = -180.0;
+        double minLat = 90.0;
+        double maxLat = -90.0;
 
         static OrthophotoBounds fromBucket(const SGBucket& bucket);
 
-        OrthophotoBounds();
         void expandToInclude(const double lon, const double lat);
+        void absorb(const OrthophotoBounds& bounds);
     };
 
     class Orthophoto : public osg::Referenced {
     private:
-        osg::ref_ptr<osg::Texture2D> _texture;
+        ImageRef _image;
         OrthophotoBounds _bbox;
-        void init(const ImageRef& image, const OrthophotoBounds& bbox);
     public:
         Orthophoto(const ImageRef& image, const OrthophotoBounds& bbox);
-        Orthophoto(ImageRefCollection2d& images, const OrthophotoBounds& bbox);
-        osg::ref_ptr<osg::Texture2D> getTexture() const { return _texture; };
+        Orthophoto(const std::vector<osg::ref_ptr<Orthophoto>>& orthophotos);
+        osg::ref_ptr<osg::Texture2D> getTexture();
         OrthophotoBounds getBbox() const { return _bbox; };
     };
 
