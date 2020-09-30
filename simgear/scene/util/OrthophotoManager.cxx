@@ -20,21 +20,54 @@
 #include "OrthophotoManager.hxx"
 
 namespace simgear {
+
+    void OrthophotoBounds::warnIfInvalid() const {
+        if (_minLon < -180.0 || _maxLon > 180.0 || _minLat < -90.0 || _maxLat > 90.0) {
+            SG_LOG(SG_TERRAIN, SG_WARN, "OrthophotoBounds: Invalid data is being used");
+        }
+    }
+
+    double OrthophotoBounds::getWidth() const {
+        warnIfInvalid();
+        return _maxLon - _minLon;
+    }
+
+    double OrthophotoBounds::getHeight() const {
+        warnIfInvalid();
+        return _maxLat - _minLat;
+    }
+
+    SGVec2f OrthophotoBounds::getTexCoord(const SGGeod& geod) const {
+        warnIfInvalid();
+        const float x = (geod.getLongitudeDeg() - _minLon) / (_maxLon - _minLon);
+        const float y = (_maxLat - geod.getLatitudeDeg()) / (_maxLat - _minLat);
+        return SGVec2f(x, y);
+    }
+
+    double OrthophotoBounds::getLonOffset(const OrthophotoBounds& other) const {
+        warnIfInvalid();
+        return _minLon - other._minLon;
+    }
+
+    double OrthophotoBounds::getLatOffset(const OrthophotoBounds& other) const {
+        warnIfInvalid();
+        return other._maxLat - _maxLat;
+    }
     
     void OrthophotoBounds::expandToInclude(const double lon, const double lat) {
-        if (lon < minLon)
-            minLon = lon;
-        if (lon > maxLon)
-            maxLon = lon;
-        if (lat < minLat)
-            minLat = lat;
-        if (lat > maxLat)
-            maxLat = lat;
+        if (lon < _minLon)
+            _minLon = lon;
+        if (lon > _maxLon)
+            _maxLon = lon;
+        if (lat < _minLat)
+            _minLat = lat;
+        if (lat > _maxLat)
+            _maxLat = lat;
     }
 
     void OrthophotoBounds::absorb(const OrthophotoBounds& bounds) {
-        expandToInclude(bounds.minLon, bounds.minLat);
-        expandToInclude(bounds.maxLon, bounds.maxLat);
+        expandToInclude(bounds._minLon, bounds._minLat);
+        expandToInclude(bounds._maxLon, bounds._maxLat);
     }
 
     Orthophoto::Orthophoto(const ImageRef& image, const OrthophotoBounds& bbox) {
@@ -69,8 +102,8 @@ namespace simgear {
             const int width = degs_to_pixels * bounds.getWidth();
             const int height = degs_to_pixels * bounds.getHeight();
             sub_image->scaleImage(width, height, depth);
-            const int s_offset = degs_to_pixels * (bounds.getMinLon() - _bbox.getMinLon());
-            const int t_offset = degs_to_pixels * (_bbox.getMaxLat() - bounds.getMaxLat());
+            const int s_offset = degs_to_pixels * bounds.getLonOffset(_bbox);
+            const int t_offset = degs_to_pixels * bounds.getLatOffset(_bbox);
             
             _image->copySubImage(s_offset, t_offset, 0, sub_image);
         }

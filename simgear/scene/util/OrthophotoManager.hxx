@@ -29,6 +29,8 @@
 #include <osgDB/ReadFile>
 #include <simgear/misc/sg_path.hxx>
 #include <simgear/bucket/newbucket.hxx>
+#include <simgear/debug/logstream.hxx>
+#include <simgear/math/SGLimits.hxx>
 #include "SGSceneFeatures.hxx"
 #include "OsgSingleton.hxx"
 
@@ -40,21 +42,21 @@ namespace simgear {
 
     class OrthophotoBounds {
     private:
-        double minLon = 180.0;
-        double maxLon = -180.0;
-        double minLat = 90.0;
-        double maxLat = -90.0;
+        double _minLon = SGLimitsd::max();
+        double _maxLon = SGLimitsd::lowest();
+        double _minLat = SGLimitsd::max();
+        double _maxLat = SGLimitsd::lowest();
+
+        void warnIfInvalid() const;
 
     public:
         static OrthophotoBounds fromBucket(const SGBucket& bucket);
 
-        double getMinLon() const { return minLon; }
-        double getMaxLon() const { return maxLon; }
-        double getMinLat() const { return minLat; }
-        double getMaxLat() const { return maxLat; }
-
-        double getWidth() const { return maxLon - minLon; }
-        double getHeight() const { return maxLat - minLat; }
+        double getWidth() const;
+        double getHeight() const;
+        SGVec2f getTexCoord(const SGGeod& geod) const;
+        double getLonOffset(const OrthophotoBounds& other) const;
+        double getLatOffset(const OrthophotoBounds& other) const;
 
         void expandToInclude(const double lon, const double lat);
         void absorb(const OrthophotoBounds& bounds);

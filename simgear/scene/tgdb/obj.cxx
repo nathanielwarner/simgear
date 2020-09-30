@@ -110,9 +110,8 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
         // Generate TexCoords for Overlay
         const SGGeod node_geod = SGGeod::fromCart(nodes[i] + center);
         const OrthophotoBounds actual_bbox = orthophoto->getBbox();
-        const float x = (node_geod.getLongitudeDeg() - actual_bbox.getMinLon()) / actual_bbox.getWidth();
-        const float y = (actual_bbox.getMaxLat() - node_geod.getLatitudeDeg()) / actual_bbox.getHeight();
-        satellite_overlay_coords.push_back(SGVec2f(x, y));
+        const SGVec2f coords = actual_bbox.getTexCoord(node_geod);
+        satellite_overlay_coords.push_back(coords);
       } else {
         satellite_overlay_coords.push_back(SGVec2f(0.0, 0.0));
       }
