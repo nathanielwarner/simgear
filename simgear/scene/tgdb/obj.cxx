@@ -93,11 +93,11 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
     osg::ref_ptr<Orthophoto> orthophoto = nullptr;
 
     if (usePhotoscenery) {
-      const long index = strtol(osgDB::getSimpleFileName(osgDB::getNameLessExtension(path)).c_str(), NULL, 10);
-      if (index > 0) { // TODO: isn't index 0 valid?
+      try {
+        const long index = lexical_cast<long>(osgDB::getSimpleFileName(osgDB::getNameLessExtension(path)));
         const SGBucket bucket(index);
         orthophoto = OrthophotoManager::instance()->getOrthophoto(bucket);
-      } else {
+      } catch (bad_lexical_cast&) {
         orthophoto = OrthophotoManager::instance()->getOrthophoto(nodes, center);
       }
     }
