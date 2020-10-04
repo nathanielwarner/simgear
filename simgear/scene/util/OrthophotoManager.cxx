@@ -144,6 +144,21 @@ namespace simgear {
     double OrthophotoBounds::getLatOffset(const OrthophotoBounds& other) const {
         return _maxLat - other._maxLat;
     }
+
+    void OrthophotoBounds::expandToInclude(const SGBucket& bucket) {
+        double center_lon = bucket.get_center_lon();
+        double center_lat = bucket.get_center_lat();
+        double width = bucket.get_width();
+        double height = bucket.get_height();
+
+        double left = center_lon - width / 2;
+        double right = center_lon + width / 2;
+        double bottom = center_lat - height / 2;
+        double top = center_lat + height / 2;
+
+        expandToInclude(left, bottom);
+        expandToInclude(right, top);
+    }
     
     void OrthophotoBounds::expandToInclude(const double lon, const double lat) {
         if (lon >= 0) {
@@ -166,7 +181,7 @@ namespace simgear {
         _updateHemisphere();
     }
 
-    void OrthophotoBounds::absorb(const OrthophotoBounds& bounds) {
+    void OrthophotoBounds::expandToInclude(const OrthophotoBounds& bounds) {
         switch (bounds._hemisphere) {
             case Eastern:
                 expandToInclude(bounds._minPosLon, bounds._minLat);
@@ -194,12 +209,12 @@ namespace simgear {
         _bbox = bbox;
     }
 
-    Orthophoto::Orthophoto(const std::vector<osg::ref_ptr<Orthophoto>>& orthophotos) {
+    Orthophoto::Orthophoto(const std::vector<OrthophotoRef>& orthophotos) {
         for (const auto& orthophoto : orthophotos) {
-            _bbox.absorb(orthophoto->getBbox());
+            _bbox.expandToInclude(orthophoto->getBbox());
         }
 
-        const osg::ref_ptr<Orthophoto>& some_orthophoto = orthophotos[0];
+        const OrthophotoRef& some_orthophoto = orthophotos[0];
         const ImageRef& some_image = some_orthophoto->_image;
         const OrthophotoBounds& some_bbox = some_orthophoto->getBbox();
         const double degs_to_pixels = some_image->s() / some_bbox.getWidth();
@@ -216,13 +231,17 @@ namespace simgear {
         _image->allocateImage(total_width, total_height, depth, pixel_format, data_type, packing);
 
         for (const auto& orthophoto : orthophotos) {
-            ImageRef sub_image = orthophoto->_image;
+            
             const OrthophotoBounds& bounds = orthophoto->getBbox();
             const int width = degs_to_pixels * bounds.getWidth();
             const int height = degs_to_pixels * bounds.getHeight();
-            sub_image->scaleImage(width, height, depth);
             const int s_offset = degs_to_pixels * _bbox.getLonOffset(bounds);
             const int t_offset = degs_to_pixels * _bbox.getLatOffset(bounds);
+
+            // Make a deep copy of the orthophoto's image so that we don't modify the original when scaling
+            ImageRef sub_image = new osg::Image(*orthophoto->_image, osg::CopyOp::DEEP_COPY_ALL);
+
+            sub_image->scaleImage(width, height, depth);
             
             _image->copySubImage(s_offset, t_offset, 0, sub_image);
         }
@@ -254,21 +273,6 @@ namespace simgear {
         _sceneryPaths.clear();
     }
 
-    void augmentBoundingBox(OrthophotoBounds& bbox, const SGBucket& new_bucket) {
-        double center_lon = new_bucket.get_center_lon();
-        double center_lat = new_bucket.get_center_lat();
-        double width = new_bucket.get_width();
-        double height = new_bucket.get_height();
-
-        double left = center_lon - width / 2;
-        double right = center_lon + width / 2;
-        double bottom = center_lat - height / 2;
-        double top = center_lat + height / 2;
-
-        bbox.expandToInclude(left, bottom);
-        bbox.expandToInclude(right, top);
-    }
-
     ImageRef OrthophotoManager::getBucketImage(const SGBucket& bucket) {
         long index = bucket.gen_index();
 
@@ -279,7 +283,16 @@ namespace simgear {
 
             for (const auto& sceneryPath : _sceneryPaths) {
                 SGPath path = sceneryPath / "Orthophotos" / bucketPath / std::to_string(index);
+
                 path.concat(".png");
+                if (path.exists()) {
+                    image = osgDB::readRefImageFile(path.str());
+                    break;
+                }
+
+                // Try DDS if there's no PNG
+                path = path.base();
+                path.concat(".dds");
                 if (path.exists()) {
                     image = osgDB::readRefImageFile(path.str());
                     break;
@@ -290,29 +303,29 @@ namespace simgear {
         return image;
     }
 
-    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(const SGBucket& bucket) {
+    OrthophotoRef OrthophotoManager::getOrthophoto(const SGBucket& bucket) {
         ImageRef image = getBucketImage(bucket);
 
         if (!image)
             return nullptr;
 
         OrthophotoBounds bbox;
-        augmentBoundingBox(bbox, bucket);
+        bbox.expandToInclude(bucket);
         
         return new Orthophoto(image, bbox);
     }
 
-    osg::ref_ptr<Orthophoto> OrthophotoManager::getOrthophoto(const std::vector<SGVec3d>& nodes, const SGVec3d& center) {
+    OrthophotoRef OrthophotoManager::getOrthophoto(const std::vector<SGVec3d>& nodes, const SGVec3d& center) {
         
         std::unordered_map<long, bool> orthophotos_attempted;
-        std::vector<osg::ref_ptr<Orthophoto>> orthophotos;
+        std::vector<OrthophotoRef> orthophotos;
 
         for (const auto& node : nodes) {
             const SGGeod node_geod = SGGeod::fromCart(node + center);
             const SGBucket bucket(node_geod);
             bool& orthophoto_attempted = orthophotos_attempted[bucket.gen_index()];
             if (!orthophoto_attempted) {
-                osg::ref_ptr<Orthophoto> orthophoto = getOrthophoto(bucket);
+                OrthophotoRef orthophoto = getOrthophoto(bucket);
                 if (orthophoto) {
                     orthophotos.push_back(orthophoto);
                 }

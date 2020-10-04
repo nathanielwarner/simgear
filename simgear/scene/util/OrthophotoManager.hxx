@@ -37,8 +37,9 @@
 namespace simgear {
 
     using ImageRef = osg::ref_ptr<osg::Image>;
-    using ImageRefVec = std::vector<ImageRef>;
-    using ImageRefCollection2d = std::vector<ImageRefVec>;
+
+    class Orthophoto;
+    using OrthophotoRef = osg::ref_ptr<Orthophoto>;
 
     class OrthophotoBounds {
     private:
@@ -61,8 +62,9 @@ namespace simgear {
         double getLonOffset(const OrthophotoBounds& other) const;
         double getLatOffset(const OrthophotoBounds& other) const;
 
+        void expandToInclude(const SGBucket& bucket);
         void expandToInclude(const double lon, const double lat);
-        void absorb(const OrthophotoBounds& bounds);
+        void expandToInclude(const OrthophotoBounds& bounds);
     };
 
     class Orthophoto : public osg::Referenced {
@@ -71,7 +73,7 @@ namespace simgear {
         OrthophotoBounds _bbox;
     public:
         Orthophoto(const ImageRef& image, const OrthophotoBounds& bbox);
-        Orthophoto(const std::vector<osg::ref_ptr<Orthophoto>>& orthophotos);
+        Orthophoto(const std::vector<OrthophotoRef>& orthophotos);
         osg::ref_ptr<osg::Texture2D> getTexture();
         OrthophotoBounds getBbox() const { return _bbox; };
     };
@@ -85,8 +87,17 @@ namespace simgear {
         static OrthophotoManager* instance();
         void addSceneryPath(const SGPath& path);
         void clearSceneryPaths();
-        osg::ref_ptr<Orthophoto> getOrthophoto(const SGBucket& bucket);
-        osg::ref_ptr<Orthophoto> getOrthophoto(const std::vector<SGVec3d>& nodes, const SGVec3d& center);
+
+        /**
+         * Get an orthophoto by bucket
+         **/
+        OrthophotoRef getOrthophoto(const SGBucket& bucket);
+
+        /**
+         * Get an orthophoto given a set of nodes.
+         * Used for airports, since they are not buckets.
+         **/
+        OrthophotoRef getOrthophoto(const std::vector<SGVec3d>& nodes, const SGVec3d& center);
     };
 }
 
