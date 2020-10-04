@@ -289,14 +289,6 @@ namespace simgear {
                     image = osgDB::readRefImageFile(path.str());
                     break;
                 }
-
-                // Try DDS if there's no PNG
-                path = path.base();
-                path.concat(".dds");
-                if (path.exists()) {
-                    image = osgDB::readRefImageFile(path.str());
-                    break;
-                }
             }
         }
 
