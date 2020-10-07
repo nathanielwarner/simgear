@@ -284,24 +284,24 @@ namespace simgear {
         OrthophotoRef& entry = _orthophotos[bucket_idx];
 
         if (entry) {
-            SG_LOG(SG_OSG, SG_WARN, "OrthophotoManager::registerOrthophoto(): Bucket index " << bucket_idx << " already has a registered orthophoto.");
+            SG_LOG(SG_TERRAIN, SG_WARN, "OrthophotoManager::registerOrthophoto(): Bucket index " << bucket_idx << " already has a registered orthophoto.");
         }
 
         if (!orthophoto) {
-            SG_LOG(SG_OSG, SG_WARN, "OrthophotoManager::registerOrthophoto(): Registering null orthophoto for bucket index " << bucket_idx);
+            SG_LOG(SG_TERRAIN, SG_WARN, "OrthophotoManager::registerOrthophoto(): Registering null orthophoto for bucket index " << bucket_idx);
         }
 
         entry = orthophoto;
 
-        SG_LOG(SG_OSG, SG_INFO, "Registered orthophoto for bucket index " << bucket_idx);
+        SG_LOG(SG_TERRAIN, SG_INFO, "Registered orthophoto for bucket index " << bucket_idx);
     }
 
     void OrthophotoManager::unregisterOrthophoto(const long bucket_idx) {
         if (_orthophotos[bucket_idx]) {
             _orthophotos.erase(bucket_idx);
-            SG_LOG(SG_OSG, SG_INFO, "Unregistered orthophoto with bucket index " << bucket_idx);
+            SG_LOG(SG_TERRAIN, SG_INFO, "Unregistered orthophoto with bucket index " << bucket_idx);
         } else {
-            SG_LOG(SG_OSG, SG_WARN, "OrthophotoManager::unregisterOrthophoto(): Attempted to unregister orthophoto with bucket index that is not currently registered.");
+            SG_LOG(SG_TERRAIN, SG_WARN, "OrthophotoManager::unregisterOrthophoto(): Attempted to unregister orthophoto with bucket index that is not currently registered.");
         }
     }
 
