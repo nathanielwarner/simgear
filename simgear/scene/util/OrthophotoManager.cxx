@@ -20,6 +20,12 @@
 #include "OrthophotoManager.hxx"
 
 namespace simgear {
+    
+    OrthophotoBounds OrthophotoBounds::fromBucket(const SGBucket& bucket) {
+        OrthophotoBounds bounds;
+        bounds.expandToInclude(bucket);
+        return bounds;
+    }
 
     void OrthophotoBounds::_updateHemisphere() {
         if (_minPosLon <= 180 && _maxPosLon >= 0 && _minNegLon < 0 && _maxNegLon >= -180) {
@@ -204,12 +210,26 @@ namespace simgear {
         }
     }
 
-    Orthophoto::Orthophoto(const ImageRef& image, const OrthophotoBounds& bbox) {
-        _image = image;
-        _bbox = bbox;
+    OrthophotoRef Orthophoto::fromBucket(const SGBucket& bucket, const PathList& scenery_paths) {
+
+        const std::string bucket_path = bucket.gen_base_path();
+
+        for (const auto& scenery_path : scenery_paths) {
+            SGPath path = scenery_path / "Orthophotos" / bucket_path / std::to_string(bucket.gen_index());
+
+            path.concat(".png");
+            if (path.exists()) {
+                ImageRef image = osgDB::readRefImageFile(path.str());
+                OrthophotoBounds bbox = OrthophotoBounds::fromBucket(bucket);
+                return new Orthophoto(image, bbox);
+            }
+        }
+
+        return nullptr;
     }
 
     Orthophoto::Orthophoto(const std::vector<OrthophotoRef>& orthophotos) {
+
         for (const auto& orthophoto : orthophotos) {
             _bbox.expandToInclude(orthophoto->getBbox());
         }
@@ -260,51 +280,37 @@ namespace simgear {
         return SingletonRefPtr<OrthophotoManager>::instance();
     }
 
-    void OrthophotoManager::addSceneryPath(const SGPath& path) {
-        for (const auto& existingPath : _sceneryPaths) {
-            if (path == existingPath) {
-                return;
-            }
-        }
-        _sceneryPaths.push_front(path);
-    }
+    void OrthophotoManager::registerOrthophoto(const long bucket_idx, const OrthophotoRef& orthophoto) {
+        OrthophotoRef& entry = _orthophotos[bucket_idx];
 
-    void OrthophotoManager::clearSceneryPaths() {
-        _sceneryPaths.clear();
-    }
-
-    ImageRef OrthophotoManager::getBucketImage(const SGBucket& bucket) {
-        long index = bucket.gen_index();
-
-        ImageRef& image = _bucketImages[index];
-
-        if (!image) {
-            const std::string bucketPath = bucket.gen_base_path();
-
-            for (const auto& sceneryPath : _sceneryPaths) {
-                SGPath path = sceneryPath / "Orthophotos" / bucketPath / std::to_string(index);
-
-                path.concat(".png");
-                if (path.exists()) {
-                    image = osgDB::readRefImageFile(path.str());
-                    break;
-                }
-            }
+        if (entry) {
+            SG_LOG(SG_OSG, SG_WARN, "OrthophotoManager::registerOrthophoto(): Bucket index " << bucket_idx << " already has a registered orthophoto.");
         }
 
-        return image;
+        if (!orthophoto) {
+            SG_LOG(SG_OSG, SG_WARN, "OrthophotoManager::registerOrthophoto(): Registering null orthophoto for bucket index " << bucket_idx);
+        }
+
+        entry = orthophoto;
+
+        SG_LOG(SG_OSG, SG_INFO, "Registered orthophoto for bucket index " << bucket_idx);
     }
 
-    OrthophotoRef OrthophotoManager::getOrthophoto(const SGBucket& bucket) {
-        ImageRef image = getBucketImage(bucket);
+    void OrthophotoManager::unregisterOrthophoto(const long bucket_idx) {
+        if (_orthophotos[bucket_idx]) {
+            _orthophotos.erase(bucket_idx);
+            SG_LOG(SG_OSG, SG_INFO, "Unregistered orthophoto with bucket index " << bucket_idx);
+        } else {
+            SG_LOG(SG_OSG, SG_WARN, "OrthophotoManager::unregisterOrthophoto(): Attempted to unregister orthophoto with bucket index that is not currently registered.");
+        }
+    }
 
-        if (!image)
+    OrthophotoRef OrthophotoManager::getOrthophoto(const long bucket_idx) {
+        if (_orthophotos[bucket_idx]) {
+            return _orthophotos[bucket_idx];
+        } else {
             return nullptr;
-
-        OrthophotoBounds bbox;
-        bbox.expandToInclude(bucket);
-        
-        return new Orthophoto(image, bbox);
+        }
     }
 
     OrthophotoRef OrthophotoManager::getOrthophoto(const std::vector<SGVec3d>& nodes, const SGVec3d& center) {
@@ -315,9 +321,10 @@ namespace simgear {
         for (const auto& node : nodes) {
             const SGGeod node_geod = SGGeod::fromCart(node + center);
             const SGBucket bucket(node_geod);
-            bool& orthophoto_attempted = orthophotos_attempted[bucket.gen_index()];
+            const long bucket_idx = bucket.gen_index();
+            bool& orthophoto_attempted = orthophotos_attempted[bucket_idx];
             if (!orthophoto_attempted) {
-                OrthophotoRef orthophoto = getOrthophoto(bucket);
+                OrthophotoRef orthophoto = this->getOrthophoto(bucket_idx);
                 if (orthophoto) {
                     orthophotos.push_back(orthophoto);
                 }

@@ -95,8 +95,7 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
     if (usePhotoscenery) {
       try {
         const long index = lexical_cast<long>(osgDB::getSimpleFileName(osgDB::getNameLessExtension(path)));
-        const SGBucket bucket(index);
-        orthophoto = OrthophotoManager::instance()->getOrthophoto(bucket);
+        orthophoto = OrthophotoManager::instance()->getOrthophoto(index);
       } catch (bad_lexical_cast&) {
         orthophoto = OrthophotoManager::instance()->getOrthophoto(nodes, center);
       }
@@ -147,7 +146,7 @@ SGLoadBTG(const std::string& path, const simgear::SGReaderWriterOptions* options
         stateSet->setTextureAttributeAndModes(15, orthophoto->getTexture(), osg::StateAttribute::ON);
         orthophotoAvailable->set(true);
 
-        SG_LOG(SG_TERRAIN, SG_INFO, "  Added satellite orthophoto for terrain object with path " << path);
+        SG_LOG(SG_OSG, SG_INFO, "Added satellite orthophoto for terrain object with path " << path);
       }
     }
 

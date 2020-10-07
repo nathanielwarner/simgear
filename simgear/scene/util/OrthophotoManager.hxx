@@ -27,6 +27,7 @@
 #include <osg/Texture2D>
 #include <osgDB/ReaderWriter>
 #include <osgDB/ReadFile>
+#include <simgear/misc/sg_dir.hxx>
 #include <simgear/misc/sg_path.hxx>
 #include <simgear/bucket/newbucket.hxx>
 #include <simgear/debug/logstream.hxx>
@@ -71,27 +72,30 @@ namespace simgear {
     private:
         ImageRef _image;
         OrthophotoBounds _bbox;
+
     public:
-        Orthophoto(const ImageRef& image, const OrthophotoBounds& bbox);
+        static OrthophotoRef fromBucket(const SGBucket& bucket, const PathList& scenery_paths);
+
+        Orthophoto(const ImageRef& image, const OrthophotoBounds& bbox) { _image = image; _bbox = bbox; }
         Orthophoto(const std::vector<OrthophotoRef>& orthophotos);
+
         osg::ref_ptr<osg::Texture2D> getTexture();
         OrthophotoBounds getBbox() const { return _bbox; };
     };
 
     class OrthophotoManager : public osg::Referenced {
     private:
-        std::deque<SGPath> _sceneryPaths;
-        std::unordered_map<long, ImageRef> _bucketImages;
-        ImageRef getBucketImage(const SGBucket& bucket);
+        std::unordered_map<long, OrthophotoRef> _orthophotos;
     public:
         static OrthophotoManager* instance();
-        void addSceneryPath(const SGPath& path);
-        void clearSceneryPaths();
+
+        void registerOrthophoto(const long bucket_idx, const OrthophotoRef& orthophoto);
+        void unregisterOrthophoto(const long bucket_idx);
 
         /**
-         * Get an orthophoto by bucket
+         * Get an orthophoto by bucket index
          **/
-        OrthophotoRef getOrthophoto(const SGBucket& bucket);
+        OrthophotoRef getOrthophoto(const long bucket_idx);
 
         /**
          * Get an orthophoto given a set of nodes.
