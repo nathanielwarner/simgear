@@ -31,8 +31,7 @@ namespace simgear {
         if (_minPosLon <= 180 && _maxPosLon >= 0 && _minNegLon < 0 && _maxNegLon >= -180) {
             // We have negative and positive longitudes.
             // Choose whether we're straddling the Prime Meridian or 180th meridian
-            // based on which produces a smaller bounding box.
-            if (_maxPosLon - _minNegLon <= _maxNegLon - _minPosLon) {
+            if (_maxPosLon - _minNegLon < 180) {
                 _hemisphere = StraddlingPm;
             } else {
                 _hemisphere = StraddlingIdl;
