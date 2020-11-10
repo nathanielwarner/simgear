@@ -81,6 +81,45 @@ std::string innerResultCodeAsString(HTTPRepository::ResultCode code) {
   return "Unknown response code";
 }
 
+struct HashCacheEntry {
+    std::string filePath;
+    time_t modTime;
+    size_t lengthBytes;
+    std::string hashHex;
+};
+
+using HashCache = std::unordered_map<std::string, HashCacheEntry>;
+
+std::string computeHashForPath(const SGPath& p)
+{
+    if (!p.exists())
+        return {};
+
+    sha1nfo info;
+    sha1_init(&info);
+
+    const int bufSize = 1024 * 1024;
+    char* buf = static_cast<char*>(malloc(bufSize));
+    if (!buf) {
+        sg_io_exception("Couldn't allocate SHA1 computation buffer");
+    }
+
+    size_t readLen;
+    SGBinaryFile f(p);
+    if (!f.open(SG_IO_IN)) {
+        free(buf);
+        throw sg_io_exception("Couldn't open file for compute hash", p);
+    }
+    while ((readLen = f.read(buf, bufSize)) > 0) {
+        sha1_write(&info, buf, readLen);
+    }
+
+    f.close();
+    free(buf);
+    std::string hashBytes((char*)sha1_result(&info), HASH_LENGTH);
+    return strutils::encodeHex(hashBytes);
+}
+
 } // namespace
 
 class HTTPDirectory
@@ -111,6 +150,9 @@ class HTTPDirectory
     typedef std::vector<ChildInfo> ChildInfoList;
     ChildInfoList children;
 
+    mutable HashCache hashes;
+    mutable bool hashCacheDirty = false;
+
 public:
     HTTPDirectory(HTTPRepoPrivate* repo, const std::string& path) :
         _repository(repo),
@@ -124,6 +166,8 @@ public:
               // already exists on disk
               parseDirIndex(children);
               std::sort(children.begin(), children.end());
+
+              parseHashCache();
           } catch (sg_exception& ) {
               // parsing cache failed
               children.clear();
@@ -149,7 +193,7 @@ public:
     {
         SGPath fpath(absolutePath());
         fpath.append(".dirindex");
-        _repository->updatedFileContents(fpath, hash);
+        updatedFileContents(fpath, hash);
 
         children.clear();
         parseDirIndex(children);
@@ -177,7 +221,7 @@ public:
 		char* buf = nullptr;
 		size_t bufSize = 0;
 
-		for (const auto& child : children) {
+                for (auto &child : children) {
                   if (child.type != HTTPRepository::FileType)
                     continue;
 
@@ -189,30 +233,36 @@ public:
                   cp.append(child.name);
                   if (!cp.exists()) {
                     continue;
-			}
+                  }
 
-			SGBinaryFile src(cp);
-			SGBinaryFile dst(child.path);
-			src.open(SG_IO_IN);
-			dst.open(SG_IO_OUT);
+                  SGBinaryFile src(cp);
+                  SGBinaryFile dst(child.path);
+                  src.open(SG_IO_IN);
+                  dst.open(SG_IO_OUT);
 
-			if (bufSize < cp.sizeInBytes()) {
-				bufSize = cp.sizeInBytes();
-				free(buf);
-				buf = (char*) malloc(bufSize);
-				if (!buf) {
-					continue;
-				}
-			}
+                  if (bufSize < cp.sizeInBytes()) {
+                    bufSize = cp.sizeInBytes();
+                    free(buf);
+                    buf = (char *)malloc(bufSize);
+                    if (!buf) {
+                      continue;
+                    }
+                  }
 
-			src.read(buf, cp.sizeInBytes());
-			dst.write(buf, cp.sizeInBytes());
-			src.close();
-			dst.close();
+                  src.read(buf, cp.sizeInBytes());
+                  dst.write(buf, cp.sizeInBytes());
+                  src.close();
+                  dst.close();
 
-		}
+                  // reset caching
+                  child.path.set_cached(false);
+                  child.path.set_cached(true);
 
-		free(buf);
+                  std::string hash = computeHashForPath(child.path);
+                  updatedFileContents(child.path, hash);
+                }
+
+                free(buf);
     }
 
     void updateChildrenBasedOnHash()
@@ -274,7 +324,7 @@ public:
           if (c.type == HTTPRepository::DirectoryType) {
             // If it's a directory,perform a recursive check.
             HTTPDirectory *childDir = childDirectory(c.name);
-            childDir->updateChildrenBasedOnHash();
+            _repository->scheduleUpdateOfChildren(childDir);
           }
         }
       } // of repository-defined (well, .dirIndex) children iteration
@@ -372,6 +422,66 @@ public:
         return _relativePath;
     }
 
+    class ArchiveExtractTask {
+    public:
+      ArchiveExtractTask(SGPath p, const std::string &relPath)
+          : relativePath(relPath), file(p), extractor(p.dir()) {
+        if (!file.open(SG_IO_IN)) {
+          SG_LOG(SG_TERRASYNC, SG_ALERT,
+                 "Unable to open " << p << " to extract");
+          return;
+        }
+
+        buffer = (uint8_t *)malloc(bufferSize);
+      }
+
+      ArchiveExtractTask(const ArchiveExtractTask &) = delete;
+
+      HTTPRepoPrivate::ProcessResult run(HTTPRepoPrivate *repo) {
+        size_t rd = file.read((char *)buffer, bufferSize);
+        extractor.extractBytes(buffer, rd);
+
+        if (file.eof()) {
+          extractor.flush();
+          file.close();
+
+          if (!extractor.isAtEndOfArchive()) {
+            SG_LOG(SG_TERRASYNC, SG_ALERT, "Corrupt tarball " << relativePath);
+            repo->failedToUpdateChild(relativePath,
+                                      HTTPRepository::REPO_ERROR_IO);
+            return HTTPRepoPrivate::ProcessFailed;
+          }
+
+          if (extractor.hasError()) {
+            SG_LOG(SG_TERRASYNC, SG_ALERT, "Error extracting " << relativePath);
+            repo->failedToUpdateChild(relativePath,
+                                      HTTPRepository::REPO_ERROR_IO);
+            return HTTPRepoPrivate::ProcessFailed;
+          }
+
+          return HTTPRepoPrivate::ProcessDone;
+        }
+
+        return HTTPRepoPrivate::ProcessContinue;
+      }
+
+      ~ArchiveExtractTask() { free(buffer); }
+
+    private:
+      // intentionally small so we extract incrementally on Windows
+      // where Defender throttles many small files, sorry
+      // if you make this bigger we will be more efficient but stall for
+      // longer when extracting the Airports_archive
+      const int bufferSize = 1024 * 64;
+
+      std::string relativePath;
+      uint8_t *buffer = nullptr;
+      SGBinaryFile file;
+      ArchiveExtractor extractor;
+    };
+
+    using ArchiveExtractTaskPtr = std::shared_ptr<ArchiveExtractTask>;
+
     void didUpdateFile(const std::string& file, const std::string& hash, size_t sz)
     {
         // check hash matches what we expected
@@ -387,7 +497,7 @@ public:
                     _relativePath + "/" + file,
                     HTTPRepository::REPO_ERROR_CHECKSUM);
             } else {
-                _repository->updatedFileContents(it->path, hash);
+                updatedFileContents(it->path, hash);
                 _repository->updatedChildSuccessfully(_relativePath + "/" +
                                                       file);
 
@@ -410,33 +520,22 @@ public:
                   }
 
                   if (pathAvailable) {
-                    // If this is a tarball, then extract it.
-                    SGBinaryFile f(p);
-                    if (! f.open(SG_IO_IN)) SG_LOG(SG_TERRASYNC, SG_ALERT, "Unable to open " << p << " to extract");
+                    // we use a Task helper to extract tarballs incrementally.
+                    // without this, archive extraction blocks here, which
+                    // prevents other repositories downloading / updating.
+                    // Unfortunately due Windows AV (Defender, etc) we cna block
+                    // here for many minutes.
 
-                    SG_LOG(SG_TERRASYNC, SG_INFO, "Extracting " << absolutePath() << "/" << file << " to " << p.dir());
-                    SGPath extractDir = p.dir();
-                    ArchiveExtractor ex(extractDir);
+                    // use a lambda to own this shared_ptr; this means when the
+                    // lambda is destroyed, the ArchiveExtraTask will get
+                    // cleaned up.
+                    ArchiveExtractTaskPtr t =
+                        std::make_shared<ArchiveExtractTask>(p, _relativePath);
+                    auto cb = [t](HTTPRepoPrivate *repo) {
+                      return t->run(repo);
+                    };
 
-                    uint8_t *buf = (uint8_t *)alloca(2048);
-                    while (!f.eof()) {
-                      size_t bufSize = f.read((char *)buf, 2048);
-                      ex.extractBytes(buf, bufSize);
-                    }
-
-                    ex.flush();
-                    if (! ex.isAtEndOfArchive()) {
-                      SG_LOG(SG_TERRASYNC, SG_ALERT, "Corrupt tarball " << p);
-                      _repository->failedToUpdateChild(
-                          _relativePath, HTTPRepository::REPO_ERROR_IO);
-                    }
-
-                    if (ex.hasError()) {
-                      SG_LOG(SG_TERRASYNC, SG_ALERT, "Error extracting " << p);
-                      _repository->failedToUpdateChild(
-                          _relativePath, HTTPRepository::REPO_ERROR_IO);
-                    }
-
+                    _repository->addTask(cb);
                   } else {
                     SG_LOG(SG_TERRASYNC, SG_ALERT, "Unable to remove old file/directory " << removePath);
                   } // of pathAvailable
@@ -452,6 +551,50 @@ public:
         fpath.append(file);
         _repository->failedToUpdateChild(fpath, status);
     }
+
+    std::string hashForPath(const SGPath& p) const
+    {
+        const auto ps = p.utf8Str();
+        auto it = hashes.find(ps);
+        if (it != hashes.end()) {
+            const auto& entry = it->second;
+            // ensure data on disk hasn't changed.
+            // we could also use the file type here if we were paranoid
+            if ((p.sizeInBytes() == entry.lengthBytes) && (p.modTime() == entry.modTime)) {
+                return entry.hashHex;
+            }
+
+            // entry in the cache, but it's stale so remove and fall through
+            hashes.erase(it);
+        }
+
+        std::string hash = computeHashForPath(p);
+        updatedFileContents(p, hash);
+        return hash;
+    }
+
+    bool isHashCacheDirty() const
+    {
+        return hashCacheDirty;
+    }
+
+    void writeHashCache() const
+    {
+        if (!hashCacheDirty)
+            return;
+
+        hashCacheDirty = false;
+
+        SGPath cachePath = absolutePath() / ".dirhash";
+        sg_ofstream stream(cachePath, std::ios::out | std::ios::trunc | std::ios::binary);
+        for (const auto& e : hashes) {
+            const auto& entry = e.second;
+            stream << entry.filePath << "*" << entry.modTime << "*"
+                   << entry.lengthBytes << "*" << entry.hashHex << "\n";
+        }
+        stream.close();
+    }
+
 private:
 
     struct ChildWithName
@@ -575,7 +718,7 @@ private:
             ok = _repository->deleteDirectory(fpath, path);
         } else {
             // remove the hash cache entry
-            _repository->updatedFileContents(path, std::string());
+            updatedFileContents(path, std::string());
             ok = path.remove();
         }
 
@@ -593,8 +736,79 @@ private:
       if (child.type == HTTPRepository::TarballType)
         p.concat(
             ".tgz"); // For tarballs the hash is against the tarball file itself
-      return _repository->hashForPath(p);
+      return hashForPath(p);
     }
+
+    void parseHashCache()
+    {
+        hashes.clear();
+        SGPath cachePath = absolutePath() / ".dirhash";
+        if (!cachePath.exists()) {
+            return;
+        }
+
+        sg_ifstream stream(cachePath, std::ios::in);
+
+        while (!stream.eof()) {
+            std::string line;
+            std::getline(stream, line);
+            line = simgear::strutils::strip(line);
+            if (line.empty() || line[0] == '#')
+                continue;
+
+            string_list tokens = simgear::strutils::split(line, "*");
+            if (tokens.size() < 4) {
+                SG_LOG(SG_TERRASYNC, SG_WARN, "invalid entry in '" << cachePath << "': '" << line << "' (ignoring line)");
+                continue;
+            }
+            const std::string nameData = simgear::strutils::strip(tokens[0]);
+            const std::string timeData = simgear::strutils::strip(tokens[1]);
+            const std::string sizeData = simgear::strutils::strip(tokens[2]);
+            const std::string hashData = simgear::strutils::strip(tokens[3]);
+
+            if (nameData.empty() || timeData.empty() || sizeData.empty() || hashData.empty()) {
+                SG_LOG(SG_TERRASYNC, SG_WARN, "invalid entry in '" << cachePath << "': '" << line << "' (ignoring line)");
+                continue;
+            }
+
+            HashCacheEntry entry;
+            entry.filePath = nameData;
+            entry.hashHex = hashData;
+            entry.modTime = strtol(timeData.c_str(), NULL, 10);
+            entry.lengthBytes = strtol(sizeData.c_str(), NULL, 10);
+            hashes.insert(std::make_pair(entry.filePath, entry));
+        }
+    }
+
+    void updatedFileContents(const SGPath& p, const std::string& newHash) const
+    {
+        // remove the existing entry
+        const auto ps = p.utf8Str();
+        auto it = hashes.find(ps);
+        if (it != hashes.end()) {
+            hashes.erase(it);
+            hashCacheDirty = true;
+        }
+
+        if (newHash.empty()) {
+            return; // we're done
+        }
+
+        // use a cloned SGPath and reset its caching to force one stat() call
+        SGPath p2(p);
+        p2.set_cached(false);
+        p2.set_cached(true);
+
+        HashCacheEntry entry;
+        entry.filePath = ps;
+        entry.hashHex = newHash;
+        entry.modTime = p2.modTime();
+        entry.lengthBytes = p2.sizeInBytes();
+        hashes.insert(std::make_pair(ps, entry));
+
+        hashCacheDirty = true;
+    }
+
 
     HTTPRepoPrivate* _repository;
     std::string _relativePath; // in URL and file-system space
@@ -606,7 +820,6 @@ HTTPRepository::HTTPRepository(const SGPath& base, HTTP::Client *cl) :
     _d->http = cl;
     _d->basePath = base;
     _d->rootDir.reset(new HTTPDirectory(_d.get(), ""));
-    _d->parseHashCache();
 }
 
 HTTPRepository::~HTTPRepository()
@@ -652,6 +865,38 @@ bool HTTPRepository::isDoingSync() const
     }
 
     return _d->isUpdating;
+}
+
+void HTTPRepository::process()
+{
+    int processedCount = 0;
+    const int maxToProcess = 16;
+
+    while (processedCount < maxToProcess) {
+      if (_d->pendingTasks.empty()) {
+        break;
+      }
+
+      auto task = _d->pendingTasks.front();
+      auto result = task(_d.get());
+      if (result == HTTPRepoPrivate::ProcessContinue) {
+        // assume we're not complete
+        return;
+      }
+
+      _d->pendingTasks.pop_front();
+      ++processedCount;
+    }
+
+    _d->checkForComplete();
+}
+
+void HTTPRepoPrivate::checkForComplete()
+{
+  if (pendingTasks.empty() && activeRequests.empty() &&
+      queuedRequests.empty()) {
+    isUpdating = false;
+  }
 }
 
 size_t HTTPRepository::bytesToDownload() const
@@ -868,7 +1113,7 @@ HTTPRepository::failure() const
               return;
             }
 
-            std::string curHash = _directory->repository()->hashForPath(path());
+            std::string curHash = _directory->hashForPath(path());
             if (hash != curHash) {
               simgear::Dir d(_directory->absolutePath());
               if (!d.exists()) {
@@ -967,6 +1212,7 @@ HTTPRepository::failure() const
             http->cancelRequest(*rq, "Repository object deleted");
         }
 
+        flushHashCaches();
         directories.clear(); // wil delete them all
     }
 
@@ -984,154 +1230,6 @@ HTTPRepository::failure() const
         r->setContentSize(sz);
         makeRequest(r);
         return r;
-    }
-
-
-    class HashEntryWithPath
-    {
-    public:
-        HashEntryWithPath(const SGPath& p) : path(p.utf8Str()) {}
-        bool operator()(const HTTPRepoPrivate::HashCacheEntry& entry) const
-        { return entry.filePath == path; }
-    private:
-        std::string path;
-    };
-
-    std::string HTTPRepoPrivate::hashForPath(const SGPath& p)
-    {
-        HashCache::iterator it = std::find_if(hashes.begin(), hashes.end(), HashEntryWithPath(p));
-        if (it != hashes.end()) {
-            // ensure data on disk hasn't changed.
-            // we could also use the file type here if we were paranoid
-            if ((p.sizeInBytes() == it->lengthBytes) && (p.modTime() == it->modTime)) {
-                return it->hashHex;
-            }
-
-            // entry in the cache, but it's stale so remove and fall through
-            hashes.erase(it);
-        }
-
-        std::string hash = computeHashForPath(p);
-        updatedFileContents(p, hash);
-        return hash;
-    }
-
-    std::string HTTPRepoPrivate::computeHashForPath(const SGPath& p)
-    {
-        if (!p.exists())
-            return {};
-
-        sha1nfo info;
-        sha1_init(&info);
-
-        const int bufSize = 1024 * 1024;
-        char* buf = static_cast<char*>(malloc(bufSize));
-        if (!buf) {
-            sg_io_exception("Couldn't allocate SHA1 computation buffer");
-        }
-
-        size_t readLen;
-        SGBinaryFile f(p);
-        if (!f.open(SG_IO_IN)) {
-            free(buf);
-            throw sg_io_exception("Couldn't open file for compute hash", p);
-        }
-        while ((readLen = f.read(buf, bufSize)) > 0) {
-            sha1_write(&info, buf, readLen);
-        }
-
-        f.close();
-        free(buf);
-        std::string hashBytes((char*) sha1_result(&info), HASH_LENGTH);
-        return strutils::encodeHex(hashBytes);
-    }
-
-    void HTTPRepoPrivate::updatedFileContents(const SGPath& p, const std::string& newHash)
-    {
-        // remove the existing entry
-        auto it = std::find_if(hashes.begin(), hashes.end(), HashEntryWithPath(p));
-        if (it != hashes.end()) {
-            hashes.erase(it);
-            ++hashCacheDirty;
-        }
-
-        if (newHash.empty()) {
-            return; // we're done
-        }
-
-        // use a cloned SGPath and reset its caching to force one stat() call
-        SGPath p2(p);
-        p2.set_cached(false);
-        p2.set_cached(true);
-
-        HashCacheEntry entry;
-        entry.filePath = p.utf8Str();
-        entry.hashHex = newHash;
-        entry.modTime = p2.modTime();
-        entry.lengthBytes = p2.sizeInBytes();
-        hashes.push_back(entry);
-
-        ++hashCacheDirty ;
-    }
-
-    void HTTPRepoPrivate::writeHashCache()
-    {
-        if (hashCacheDirty == 0) {
-            return;
-        }
-
-        SGPath cachePath = basePath;
-        cachePath.append(".hashes");
-        sg_ofstream stream(cachePath, std::ios::out | std::ios::trunc | std::ios::binary);
-        HashCache::const_iterator it;
-        for (it = hashes.begin(); it != hashes.end(); ++it) {
-            stream << it->filePath << "*" << it->modTime << "*"
-            << it->lengthBytes << "*" << it->hashHex << "\n";
-        }
-        stream.close();
-        hashCacheDirty = 0;
-    }
-
-    void HTTPRepoPrivate::parseHashCache()
-    {
-        hashes.clear();
-        SGPath cachePath = basePath;
-        cachePath.append(".hashes");
-        if (!cachePath.exists()) {
-            return;
-        }
-
-        sg_ifstream stream(cachePath, std::ios::in);
-
-        while (!stream.eof()) {
-            std::string line;
-            std::getline(stream,line);
-            line = simgear::strutils::strip(line);
-            if( line.empty() || line[0] == '#' )
-                continue;
-
-			string_list tokens = simgear::strutils::split(line, "*");
-            if( tokens.size() < 4 ) {
-                SG_LOG(SG_TERRASYNC, SG_WARN, "invalid entry in '" << cachePath << "': '" << line << "' (ignoring line)");
-                continue;
-            }
-            const std::string nameData = simgear::strutils::strip(tokens[0]);
-            const std::string timeData = simgear::strutils::strip(tokens[1]);
-            const std::string sizeData = simgear::strutils::strip(tokens[2]);
-            const std::string hashData = simgear::strutils::strip(tokens[3]);
-
-            if (nameData.empty() || timeData.empty() || sizeData.empty() || hashData.empty() ) {
-                SG_LOG(SG_TERRASYNC, SG_WARN, "invalid entry in '" << cachePath << "': '" << line << "' (ignoring line)");
-                continue;
-            }
-
-            HashCacheEntry entry;
-            entry.filePath = nameData;
-            entry.hashHex = hashData;
-            entry.modTime = strtol(timeData.c_str(), NULL, 10);
-            entry.lengthBytes = strtol(sizeData.c_str(), NULL, 10);
-            hashes.push_back(entry);
-        }
     }
 
     class DirectoryWithPath
@@ -1163,16 +1261,12 @@ HTTPRepository::failure() const
         if (it != directories.end()) {
           assert((*it)->absolutePath() == absPath);
           directories.erase(it);
-                } else {
-			// we encounter this code path when deleting an orphaned directory
-		}
+        } else {
+            // we encounter this code path when deleting an orphaned directory
+        }
 
-		Dir dir(absPath);
+        Dir dir(absPath);
 		bool result = dir.remove(true);
-
-		// update the hash cache too
-		updatedFileContents(absPath, std::string());
-
         return result;
     }
 
@@ -1208,17 +1302,10 @@ HTTPRepository::failure() const
         http->makeRequest(rr);
       }
 
-      // rate limit how often we write this, since otherwise
-      // it dominates the time on Windows. 256 seems about right,
-      // causes a write a few times a minute.
-      if (hashCacheDirty > 256) {
-        writeHashCache();
+      if (countDirtyHashCaches() > 32) {
+          flushHashCaches();
       }
-
-      if (activeRequests.empty() && queuedRequests.empty()) {
-        isUpdating = false;
-        writeHashCache();
-      }
+      checkForComplete();
     }
 
     void HTTPRepoPrivate::failedToGetRootIndex(HTTPRepository::ResultCode st)
@@ -1277,6 +1364,40 @@ HTTPRepository::failure() const
                            return f.path == relativePath;
                          }),
           failures.end());
+    }
+
+    void HTTPRepoPrivate::scheduleUpdateOfChildren(HTTPDirectory* dir)
+    {
+      auto updateChildTask = [dir](const HTTPRepoPrivate *) {
+        dir->updateChildrenBasedOnHash();
+        return ProcessDone;
+      };
+
+      addTask(updateChildTask);
+    }
+
+    void HTTPRepoPrivate::addTask(RepoProcessTask task) {
+      pendingTasks.push_back(task);
+    }
+
+    int HTTPRepoPrivate::countDirtyHashCaches() const
+    {
+        int result = rootDir->isHashCacheDirty() ? 1 : 0;
+        for (const auto& dir : directories) {
+            if (dir->isHashCacheDirty()) {
+                ++result;
+            }
+        }
+
+        return result;
+    }
+
+    void HTTPRepoPrivate::flushHashCaches()
+    {
+        rootDir->writeHashCache();
+        for (const auto& dir : directories) {
+            dir->writeHashCache();
+        }
     }
 
 } // of namespace simgear

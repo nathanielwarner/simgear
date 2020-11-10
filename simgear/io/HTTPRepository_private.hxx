@@ -19,8 +19,11 @@
 
 #pragma once
 
+#include <deque>
+#include <functional>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include <simgear/io/HTTPClient.hxx>
 #include <simgear/misc/sg_path.hxx>
@@ -48,20 +51,11 @@ protected:
   size_t _contentSize = 0;
 };
 
-typedef SGSharedPtr<HTTPRepoGetRequest> RepoRequestPtr;
+using RepoRequestPtr = SGSharedPtr<HTTPRepoGetRequest>;
 
 class HTTPRepoPrivate {
 public:
-  struct HashCacheEntry {
-    std::string filePath;
-    time_t modTime;
-    size_t lengthBytes;
-    std::string hashHex;
-  };
 
-  typedef std::vector<HashCacheEntry> HashCache;
-  HashCache hashes;
-  int hashCacheDirty = 0;
 
   HTTPRepository::FailureVec failures;
   int maxPermittedFailures = 16;
@@ -89,17 +83,13 @@ public:
   HTTP::Request_ptr updateDir(HTTPDirectory *dir, const std::string &hash,
                               size_t sz);
 
-  std::string hashForPath(const SGPath &p);
-  void updatedFileContents(const SGPath &p, const std::string &newHash);
-  void parseHashCache();
-  std::string computeHashForPath(const SGPath &p);
-  void writeHashCache();
-
   void failedToGetRootIndex(HTTPRepository::ResultCode st);
   void failedToUpdateChild(const SGPath &relativePath,
                            HTTPRepository::ResultCode fileStatus);
 
   void updatedChildSuccessfully(const SGPath &relativePath);
+
+  void checkForComplete();
 
   typedef std::vector<RepoRequestPtr> RequestVector;
   RequestVector queuedRequests, activeRequests;
@@ -113,10 +103,24 @@ public:
   HTTPDirectory *getOrCreateDirectory(const std::string &path);
   bool deleteDirectory(const std::string &relPath, const SGPath &absPath);
 
+
   typedef std::vector<HTTPDirectory_ptr> DirectoryVector;
   DirectoryVector directories;
 
+  void scheduleUpdateOfChildren(HTTPDirectory *dir);
+
   SGPath installedCopyPath;
+
+  int countDirtyHashCaches() const;
+  void flushHashCaches();
+
+  enum ProcessResult { ProcessContinue, ProcessDone, ProcessFailed };
+
+  using RepoProcessTask = std::function<ProcessResult(HTTPRepoPrivate *repo)>;
+
+  void addTask(RepoProcessTask task);
+
+  std::deque<RepoProcessTask> pendingTasks;
 };
 
 } // namespace simgear
