@@ -34,7 +34,7 @@ namespace simgear {
 namespace pkg {
 
 Package::Package(const SGPropertyNode* aProps, CatalogRef aCatalog) :
-    m_catalog(aCatalog)
+    m_catalog(aCatalog.get())
 {
     initWithProps(aProps);
 }
@@ -198,6 +198,11 @@ InstallRef Package::install()
 {
     InstallRef ins = existingInstall();
     if (ins) {
+      // if there's updates, treat this as a 'start update' request
+      if (ins->hasUpdate()) {
+        m_catalog->root()->scheduleToUpdate(ins);
+      }
+
         return ins;
     }
 
@@ -210,13 +215,39 @@ InstallRef Package::install()
     return ins;
 }
 
+InstallRef Package::markForInstall() {
+  InstallRef ins = existingInstall();
+  if (ins) {
+    return ins;
+  }
+
+  const auto pd = pathOnDisk();
+
+  Dir dir(pd);
+  if (!dir.create(0700)) {
+    SG_LOG(SG_IO, SG_ALERT,
+           "Package::markForInstall: couldn't create directory at:" << pd);
+    return {};
+  }
+
+  ins = new Install{this, pd};
+  _install_cb(this, ins); // not sure if we should trigger the callback for this
+
+  // repeat for dependencies to be kind
+  for (auto dep : dependencies()) {
+    dep->markForInstall();
+  }
+
+  return ins;
+}
+
 InstallRef Package::existingInstall(const InstallCallback& cb) const
 {
     InstallRef install;
     try {
         install = m_catalog->root()->existingInstallForPackage(const_cast<Package*>(this));
     } catch (std::exception& ) {
-        return InstallRef();
+      return {};
     }
 
   if( cb )
@@ -233,6 +264,11 @@ InstallRef Package::existingInstall(const InstallCallback& cb) const
 std::string Package::id() const
 {
     return m_id;
+}
+
+CatalogRef Package::catalog() const
+{
+    return {m_catalog};
 }
 
 std::string Package::qualifiedId() const

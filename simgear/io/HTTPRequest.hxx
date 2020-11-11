@@ -54,7 +54,8 @@ public:
       HEADERS_RECEIVED,
       LOADING,
       DONE,
-      FAILED
+      FAILED,
+      CANCELLED
     };
 
     virtual ~Request();
@@ -207,7 +208,9 @@ public:
      */
     bool serverSupportsPipelining() const;
 
-protected:
+    virtual void prepareForRetry();
+
+  protected:
     Request(const std::string& url, const std::string method = "GET");
 
     virtual void requestStart();
@@ -221,12 +224,14 @@ protected:
     virtual void onFail();
     virtual void onAlways();
 
-    void setFailure(int code, const std::string& reason);
     void setSuccess(int code);
-private:
+    void setFailure(int code, const std::string &reason);
+
+  private:
     friend class Client;
     friend class Connection;
     friend class ContentDecoder;
+    friend class TestApi;
 
     Request(const Request&); // = delete;
     Request& operator=(const Request&); // = delete;

@@ -283,6 +283,32 @@ public:
         fireDataForThumbnail(url, reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
     }
 
+    void writeRemovedCatalogsFile() const {
+      SGPath p = path / "RemovedCatalogs";
+      sg_ofstream stream(p, std::ios::out | std::ios::trunc | std::ios::binary);
+      for (const auto &cid : manuallyRemovedCatalogs) {
+        stream << cid << "\n";
+      }
+      stream.close();
+    }
+
+    void loadRemovedCatalogsFile() {
+      manuallyRemovedCatalogs.clear();
+      SGPath p = path / "RemovedCatalogs";
+      if (!p.exists())
+        return;
+
+      sg_ifstream stream(p, std::ios::in);
+      while (!stream.eof()) {
+        std::string line;
+        std::getline(stream, line);
+        const auto trimmed = strutils::strip(line);
+        if (!trimmed.empty()) {
+          manuallyRemovedCatalogs.push_back(trimmed);
+        }
+      } // of lines iteration
+    }
+
     DelegateVec delegates;
 
     SGPath path;
@@ -312,6 +338,9 @@ public:
 
     typedef std::map<PackageRef, InstallRef> InstallCache;
     InstallCache m_installs;
+
+    /// persistent list of catalogs the user has manually removed
+    string_list manuallyRemovedCatalogs;
 };
 
 
@@ -399,6 +428,8 @@ Root::Root(const SGPath& aPath, const std::string& aVersion) :
     if (!thumbsCacheDir.exists()) {
         thumbsCacheDir.create(0755);
     }
+
+    d->loadRemovedCatalogsFile();
 
     for (SGPath c : dir.children(Dir::TYPE_DIR | Dir::NO_DOT_OR_DOTDOT)) {
         // note this will set the catalog status, which will insert into
@@ -621,6 +652,13 @@ void Root::scheduleToUpdate(InstallRef aInstall)
     }
 }
 
+void Root::scheduleAllUpdates() {
+  auto toBeUpdated = packagesNeedingUpdate(); // make a copy
+  for (const auto &u : toBeUpdated) {
+    scheduleToUpdate(u->existingInstall());
+  }
+}
+
 bool Root::isInstallQueued(InstallRef aInstall) const
 {
     auto it = std::find(d->updateDeque.begin(), d->updateDeque.end(), aInstall);
@@ -690,14 +728,17 @@ void Root::catalogRefreshStatus(CatalogRef aCat, Delegate::StatusCode aReason)
         d->refreshing.erase(aCat);
     }
 
-    if ((aReason == Delegate::STATUS_REFRESHED) && (catIt == d->catalogs.end())) {
+    if (aCat->isUserEnabled() &&
+        (aReason == Delegate::STATUS_REFRESHED) && 
+        (catIt == d->catalogs.end())) 
+    {
         assert(!aCat->id().empty());
         d->catalogs.insert(catIt, CatalogDict::value_type(aCat->id(), aCat));
 
-        // catalog might have been previously disabled, let's remove in that case
+    // catalog might have been previously disabled, let's remove in that case
         auto j = std::find(d->disabledCatalogs.begin(),
-                           d->disabledCatalogs.end(),
-                           aCat);
+                        d->disabledCatalogs.end(),
+                        aCat);
         if (j != d->disabledCatalogs.end()) {
             SG_LOG(SG_GENERAL, SG_INFO, "re-enabling disabled catalog:" << aCat->id());
             d->disabledCatalogs.erase(j);
@@ -705,7 +746,7 @@ void Root::catalogRefreshStatus(CatalogRef aCat, Delegate::StatusCode aReason)
     }
 
     if (!aCat->isEnabled()) {
-        // catalog has errors, disable it
+        // catalog has errors or was disabled by user, disable it
         auto j = std::find(d->disabledCatalogs.begin(),
                            d->disabledCatalogs.end(),
                            aCat);
@@ -780,6 +821,9 @@ bool Root::removeCatalogById(const std::string& aId)
             << "failed to remove directory");
     }
 
+    d->manuallyRemovedCatalogs.push_back(aId);
+    d->writeRemovedCatalogsFile();
+
     // notify that a catalog is being removed
     d->firePackagesChanged();
 
@@ -849,6 +893,10 @@ void Root::unregisterInstall(InstallRef ins)
 
     d->m_installs.erase(ins->package());
     d->fireFinishUninstall(ins->package());
+}
+
+string_list Root::explicitlyRemovedCatalogs() const {
+  return d->manuallyRemovedCatalogs;
 }
 
 } // of namespace pkg

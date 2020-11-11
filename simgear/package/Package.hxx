@@ -61,6 +61,13 @@ public:
     InstallRef
     existingInstall(const InstallCallback& cb = InstallCallback()) const;
 
+    /**
+     * Mark this package for installation, but don't actually start the
+     * download process. This creates the on-disk placeholder, so
+     * the package will appear an eededing to be updated.
+     */
+    InstallRef markForInstall();
+
     bool isInstalled() const;
 
     /**
@@ -130,8 +137,7 @@ public:
 
     size_t fileSizeBytes() const;
 
-    CatalogRef catalog() const
-        { return m_catalog; }
+    CatalogRef catalog() const;
 
     bool matches(const SGPropertyNode* aFilter) const;
 
@@ -236,7 +242,7 @@ private:
     SGPropertyNode_ptr m_props;
     std::string m_id;
     string_set m_tags;
-    CatalogRef m_catalog;
+    Catalog* m_catalog = nullptr; // non-owning ref, explicitly
     string_list m_variants;
 
     mutable function_list<InstallCallback> _install_cb;

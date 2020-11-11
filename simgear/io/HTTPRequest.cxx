@@ -56,6 +56,15 @@ Request::~Request()
 
 }
 
+void Request::prepareForRetry() {
+  setReadyState(UNSENT);
+  _willClose = false;
+  _connectionCloseHeader = false;
+  _responseStatus = 0;
+  _responseLength = 0;
+  _receivedBodyBytes = 0;
+}
+
 //------------------------------------------------------------------------------
 Request* Request::done(const Callback& cb)
 {
@@ -193,13 +202,16 @@ void Request::onDone()
 //------------------------------------------------------------------------------
 void Request::onFail()
 {
-  SG_LOG
-  (
-    SG_IO,
-    SG_INFO,
-    "request failed:" << url() << " : "
-                      << responseCode() << "/" << responseReason()
-  );
+  // log if we FAIELD< but not if we CANCELLED
+  if (_ready_state == FAILED) {
+    SG_LOG
+    (
+      SG_IO,
+      SG_INFO,
+      "request failed:" << url() << " : "
+                        << responseCode() << "/" << responseReason()
+    );
+  }
 }
 
 //------------------------------------------------------------------------------
@@ -344,12 +356,17 @@ void Request::setSuccess(int code)
 //------------------------------------------------------------------------------
 void Request::setFailure(int code, const std::string& reason)
 {
+  // we use -1 for cancellation, don't be noisy in that case
+  if (code >= 0) { 
     SG_LOG(SG_IO, SG_WARN, "HTTP request: set failure:" << code << " reason " << reason);
+  }
+
   _responseStatus = code;
   _responseReason = reason;
 
-  if( !isComplete() )
-    setReadyState(FAILED);
+  if( !isComplete() ) {
+    setReadyState(code < 0 ? CANCELLED : FAILED);
+  }
 }
 
 //------------------------------------------------------------------------------
@@ -371,6 +388,12 @@ void Request::setReadyState(ReadyState state)
     onFail();
     onAlways();
 
+    _cb_fail(this);
+  }
+  else if (state == CANCELLED )
+  {
+    onFail(); // do this for compatability
+    onAlways();
     _cb_fail(this);
   }
   else
@@ -402,7 +425,7 @@ bool Request::serverSupportsPipelining() const
 //------------------------------------------------------------------------------
 bool Request::isComplete() const
 {
-  return _ready_state == DONE || _ready_state == FAILED;
+  return _ready_state == DONE || _ready_state == FAILED || _ready_state == CANCELLED;
 }
 
 //------------------------------------------------------------------------------

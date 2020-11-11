@@ -318,7 +318,9 @@ public:
 
     bool isDirActive(const std::string& path) const;
 
-private:
+    void setCachePath(const SGPath &p) { _persistentCachePath = p; }
+
+  private:
     void incrementCacheHits()
     {
         std::lock_guard<std::mutex> g(_stateLock);
@@ -331,6 +333,10 @@ private:
     void runInternal();
     void updateSyncSlot(SyncSlot& slot);
 
+    void beginSyncAirports(SyncSlot& slot);
+    void beginSyncTile(SyncSlot& slot);
+    void beginNormalSync(SyncSlot& slot);
+
     void drainWaitingTiles();
 
     // commond helpers between both internal and external models
@@ -339,6 +345,9 @@ private:
     void updated(SyncItem item, bool isNewDirectory);
     void fail(SyncItem failedItem);
     void notFound(SyncItem notFoundItem);
+
+    void initCompletedTilesPersistentCache();
+    void writeCompletedTilesPersistentCache() const;
 
     HTTP::Client _http;
     SyncSlot _syncSlots[NUM_SYNC_SLOTS];
@@ -529,6 +538,7 @@ void SGTerraSync::WorkerThread::run()
         _running = true;
     }
 
+    initCompletedTilesPersistentCache();
     runInternal();
 
     {
@@ -540,6 +550,7 @@ void SGTerraSync::WorkerThread::run()
 void SGTerraSync::WorkerThread::updateSyncSlot(SyncSlot &slot)
 {
     if (slot.repository.get()) {
+        slot.repository->process();
         if (slot.repository->isDoingSync()) {
 #if 1
             if (slot.stamp.elapsedMSec() > (int)slot.nextWarnTimeout) {
@@ -581,18 +592,15 @@ void SGTerraSync::WorkerThread::updateSyncSlot(SyncSlot &slot)
         SGPath path(_local_dir);
         path.append(slot.currentItem._dir);
         slot.isNewDirectory = !path.exists();
-        if (slot.isNewDirectory) {
-            int rc = path.create_dir( 0755 );
-            if (rc) {
-                SG_LOG(SG_TERRASYNC,SG_ALERT,
-                       "Cannot create directory '" << path << "', return code = " << rc );
-                fail(slot.currentItem);
-                return;
-            }
-        } // of creating directory step
+        const auto type = slot.currentItem._type;
 
-        slot.repository.reset(new HTTPRepository(path, &_http));
-        slot.repository->setBaseUrl(_httpServer + "/" + slot.currentItem._dir);
+        if (type == SyncItem::AirportData) {
+            beginSyncAirports(slot);
+        } else if (type == SyncItem::Tile) {
+            beginSyncTile(slot);
+        } else {
+            beginNormalSync(slot);
+        }
 
         if (_installRoot.exists()) {
             SGPath p = _installRoot;
@@ -618,6 +626,85 @@ void SGTerraSync::WorkerThread::updateSyncSlot(SyncSlot &slot)
 
         SG_LOG(SG_TERRASYNC, SG_INFO, "sync of " << slot.repository->baseUrl() << " started, queue size is " << slot.queue.size());
     }
+}
+
+void SGTerraSync::WorkerThread::beginSyncAirports(SyncSlot& slot)
+{
+    if (!slot.isNewDirectory) {
+        beginNormalSync(slot);
+        return;
+    }
+
+    SG_LOG(SG_TERRASYNC, SG_INFO, "doing Airports download via tarball");
+
+    // we want to sync the 'root' TerraSync dir, but not all of it, just
+    // the Airports_archive.tar.gz file so we use our TerraSync local root
+    // as the path (since the archive will add Airports/)
+    slot.repository.reset(new HTTPRepository(_local_dir, &_http));
+    slot.repository->setBaseUrl(_httpServer);
+
+    // filter callback to *only* sync the Airport_archive tarball,
+    // and ensure no other contents are touched
+    auto f = [](const HTTPRepository::SyncItem& item) {
+        if (!item.directory.empty())
+            return false;
+        return (item.filename.find("Airports_archive.") == 0);
+    };
+
+    slot.repository->setFilter(f);
+}
+
+void SGTerraSync::WorkerThread::beginSyncTile(SyncSlot& slot)
+{
+    // avoid 404 requests by doing a sync which excludes all paths
+    // except our tile path. In the case of a missing 1x1 tile, we will
+    // stop becuase all directories are filtered out, which is what we want
+
+    auto comps = strutils::split(slot.currentItem._dir, "/");
+    if (comps.size() != 3) {
+        SG_LOG(SG_TERRASYNC, SG_ALERT, "Bad tile path:" << slot.currentItem._dir);
+        beginNormalSync(slot);
+        return;
+    }
+
+    const auto tileCategory = comps.front();
+    const auto tenByTenDir = comps.at(1);
+    const auto oneByOneDir = comps.at(2);
+
+    const auto path = SGPath::fromUtf8(_local_dir) / tileCategory;
+    slot.repository.reset(new HTTPRepository(path, &_http));
+    slot.repository->setBaseUrl(_httpServer + "/" + tileCategory);
+
+    const auto dirPrefix = tenByTenDir + "/" + oneByOneDir;
+
+    // filter callback to *only* sync the 1x1 dir we want, if it exists
+    // if doesn't, we'll simply stop, which is what we want
+    auto f = [tenByTenDir, oneByOneDir, dirPrefix](const HTTPRepository::SyncItem& item) {
+        // only allow the specific 10x10 and 1x1 dirs we want
+        if (item.directory.empty()) {
+            return item.filename == tenByTenDir;
+        } else if (item.directory == tenByTenDir) {
+            return item.filename == oneByOneDir;
+        }
+
+        // allow arbitrary children below dirPrefix, including sub-dirs
+        if (item.directory.find(dirPrefix) == 0) {
+            return true;
+        }
+
+        SG_LOG(SG_TERRASYNC, SG_ALERT, "Tile sync: saw weird path:" << item.directory << " file " << item.filename);
+        return false;
+    };
+
+    slot.repository->setFilter(f);
+}
+
+void SGTerraSync::WorkerThread::beginNormalSync(SyncSlot& slot)
+{
+    SGPath path(_local_dir);
+    path.append(slot.currentItem._dir);
+    slot.repository.reset(new HTTPRepository(path, &_http));
+    slot.repository->setBaseUrl(_httpServer + "/" + slot.currentItem._dir);
 }
 
 void SGTerraSync::WorkerThread::runInternal()
@@ -713,6 +800,7 @@ void SGTerraSync::WorkerThread::fail(SyncItem failedItem)
     _state._fail_count++;
     failedItem._status = SyncItem::Failed;
     _freshTiles.push_back(failedItem);
+    // not we also end up here for partial syncs
     SG_LOG(SG_TERRASYNC,SG_INFO,
            "Failed to sync'" << failedItem._dir << "'");
     _completedTiles[ failedItem._dir ] = now + UpdateInterval::FailedAttempt;
@@ -729,6 +817,7 @@ void SGTerraSync::WorkerThread::notFound(SyncItem item)
     item._status = SyncItem::NotFound;
     _freshTiles.push_back(item);
     _notFoundItems[ item._dir ] = now + UpdateInterval::SuccessfulAttempt;
+    writeCompletedTilesPersistentCache();
 }
 
 void SGTerraSync::WorkerThread::updated(SyncItem item, bool isNewDirectory)
@@ -749,6 +838,8 @@ void SGTerraSync::WorkerThread::updated(SyncItem item, bool isNewDirectory)
         _freshTiles.push_back(item);
         _completedTiles[ item._dir ] = now + UpdateInterval::SuccessfulAttempt;
     }
+
+    writeCompletedTilesPersistentCache();
 }
 
 void SGTerraSync::WorkerThread::drainWaitingTiles()
@@ -800,6 +891,68 @@ bool SGTerraSync::WorkerThread::isDirActive(const std::string& path) const
     } // of sync slots iteration
 
     return false;
+}
+
+void SGTerraSync::WorkerThread::initCompletedTilesPersistentCache() {
+  if (!_persistentCachePath.exists()) {
+    return;
+  }
+
+  SGPropertyNode_ptr cacheRoot(new SGPropertyNode);
+  time_t now = time(0);
+
+  try {
+    readProperties(_persistentCachePath, cacheRoot);
+  } catch (sg_exception &e) {
+    SG_LOG(SG_TERRASYNC, SG_INFO, "corrupted persistent cache, discarding");
+    return;
+  }
+
+  for (int i = 0; i < cacheRoot->nChildren(); ++i) {
+    SGPropertyNode *entry = cacheRoot->getChild(i);
+    bool isNotFound = (strcmp(entry->getName(), "not-found") == 0);
+    string tileName = entry->getStringValue("path");
+    time_t stamp = entry->getIntValue("stamp");
+    if (stamp < now) {
+      continue;
+    }
+
+    if (isNotFound) {
+      _notFoundItems[tileName] = stamp;
+    } else {
+      _completedTiles[tileName] = stamp;
+    }
+  }
+}
+
+void SGTerraSync::WorkerThread::writeCompletedTilesPersistentCache() const {
+  // cache is disabled
+  if (_persistentCachePath.isNull()) {
+    return;
+  }
+
+  sg_ofstream f(_persistentCachePath, std::ios::trunc);
+  if (!f.is_open()) {
+    return;
+  }
+
+  SGPropertyNode_ptr cacheRoot(new SGPropertyNode);
+  TileAgeCache::const_iterator it = _completedTiles.begin();
+  for (; it != _completedTiles.end(); ++it) {
+    SGPropertyNode *entry = cacheRoot->addChild("entry");
+    entry->setStringValue("path", it->first);
+    entry->setIntValue("stamp", it->second);
+  }
+
+  it = _notFoundItems.begin();
+  for (; it != _notFoundItems.end(); ++it) {
+    SGPropertyNode *entry = cacheRoot->addChild("not-found");
+    entry->setStringValue("path", it->first);
+    entry->setIntValue("stamp", it->second);
+  }
+
+  writeProperties(f, cacheRoot, true /* write_all */);
+  f.close();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -881,10 +1034,17 @@ void SGTerraSync::reinit()
 #else
         _workerThread->setDNSDN( _terraRoot->getStringValue("dnsdn","terrasync.flightgear.org") );
 #endif
-        _workerThread->setLocalDir(_terraRoot->getStringValue("scenery-dir",""));
+
+        SGPath sceneryRoot{_terraRoot->getStringValue("scenery-dir", "")};
+        _workerThread->setLocalDir(sceneryRoot.utf8Str());
 
         SGPath installPath(_terraRoot->getStringValue("installation-dir"));
         _workerThread->setInstalledDir(installPath);
+
+        if (_terraRoot->getBoolValue("enable-persistent-cache", true)) {
+          _workerThread->setCachePath(sceneryRoot / "RecheckCache");
+        }
+
         _workerThread->setCacheHits(_terraRoot->getIntValue("cache-hit", 0));
 
         if (_workerThread->start())
@@ -969,12 +1129,12 @@ void SGTerraSync::update(double)
     if (enabled && !worker_running)
     {
         reinit();
-        SG_LOG(SG_TERRASYNC, SG_ALERT, "Terrasync started");
+        SG_LOG(SG_TERRASYNC, SG_MANDATORY_INFO, "Terrasync started");
     }
     else if (!enabled && worker_running)
     {
         reinit();
-        SG_LOG(SG_TERRASYNC, SG_ALERT, "Terrasync stopped");
+        SG_LOG(SG_TERRASYNC, SG_MANDATORY_INFO, "Terrasync stopped");
     }
     TerrasyncThreadState copiedState(_workerThread->threadsafeCopyState());
 
@@ -1011,21 +1171,10 @@ bool SGTerraSync::isIdle() {return _workerThread->isIdle();}
 
 void SGTerraSync::syncAirportsModels()
 {
-    static const char* bounds = "MZAJKL"; // airport sync order: K-L, A-J, M-Z
-    // note "request" method uses LIFO order, i.e. processes most recent request first
-    for( unsigned i = 0; i < strlen(bounds)/2; i++ )
-    {
-        for ( char synced_other = bounds[2*i]; synced_other <= bounds[2*i+1]; synced_other++ )
-        {
-            ostringstream dir;
-            dir << "Airports/" << synced_other;
-            SyncItem w(dir.str(), SyncItem::AirportData);
-            _workerThread->request( w );
-        }
-    }
-
-    SyncItem w("Models", SyncItem::SharedModels);
-    _workerThread->request( w );
+  SyncItem w("Airports", SyncItem::AirportData);
+  SyncItem a("Models", SyncItem::SharedModels);
+  _workerThread->request(w);
+  _workerThread->request(a);
 }
 
 string_list SGTerraSync::getSceneryPathSuffixes() const

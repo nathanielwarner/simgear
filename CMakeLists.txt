@@ -161,7 +161,7 @@ else()
         endif()
     endif(ENABLE_SOUND)
 
-    find_package(OpenSceneGraph 3.4.1 REQUIRED osgText osgSim osgDB osgParticle osgGA osgViewer osgUtil)
+    find_package(OpenSceneGraph 3.4.1 REQUIRED osgText osgSim osgDB osgParticle osgGA osgViewer osgUtil osgTerrain)
 
     if (MSVC)
       set(CMAKE_REQUIRED_INCLUDES ${OPENSCENEGRAPH_INCLUDE_DIRS})
@@ -179,7 +179,14 @@ else()
     endif()
 endif(SIMGEAR_HEADLESS)
 
-find_package(ZLIB 1.2.4 REQUIRED)
+if(${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD")
+    # As of 2020-08-01, OpenBSD's system zlib is slightly old, but it's usable
+    # with a workaround in simgear/io/iostreams/gzfstream.cxx.
+    find_package(ZLIB 1.2.3 REQUIRED)
+else()
+    find_package(ZLIB 1.2.4 REQUIRED)
+endif()
+
 find_package(CURL REQUIRED)
 
 if (SYSTEM_EXPAT)
