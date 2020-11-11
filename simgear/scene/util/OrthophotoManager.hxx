@@ -77,7 +77,7 @@ namespace simgear {
         static OrthophotoRef fromBucket(const SGBucket& bucket, const PathList& scenery_paths);
 
         Orthophoto(const ImageRef& image, const OrthophotoBounds& bbox) { _image = image; _bbox = bbox; }
-        Orthophoto(const std::vector<OrthophotoRef>& orthophotos);
+        Orthophoto(const std::vector<OrthophotoRef>& orthophotos, const OrthophotoBounds& needed_bbox);
 
         osg::ref_ptr<osg::Texture2D> getTexture();
         OrthophotoBounds getBbox() const { return _bbox; };

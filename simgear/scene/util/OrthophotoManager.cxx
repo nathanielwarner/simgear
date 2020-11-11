@@ -227,10 +227,68 @@ namespace simgear {
         return nullptr;
     }
 
-    Orthophoto::Orthophoto(const std::vector<OrthophotoRef>& orthophotos) {
+    // Handy image cropping function from osgEarth
+    osg::Image* cropImage(const osg::Image* image,
+                          double src_minx, double src_miny, double src_maxx, double src_maxy,
+                          double &dst_minx, double &dst_miny, double &dst_maxx, double &dst_maxy) {
+        if ( image == 0L )
+            return 0L;
 
+        //Compute the desired cropping rectangle
+        int windowX        = osg::clampBetween( (int)floor( (dst_minx - src_minx) / (src_maxx - src_minx) * (double)image->s()), 0, image->s()-1);
+        int windowY        = osg::clampBetween( (int)floor( (dst_miny - src_miny) / (src_maxy - src_miny) * (double)image->t()), 0, image->t()-1);
+        int windowWidth    = osg::clampBetween( (int)ceil(  (dst_maxx - src_minx) / (src_maxx - src_minx) * (double)image->s()) - windowX, 0, image->s());
+        int windowHeight   = osg::clampBetween( (int)ceil(  (dst_maxy - src_miny) / (src_maxy - src_miny) * (double)image->t()) - windowY, 0, image->t());
+
+        if (windowX + windowWidth > image->s())
+        {
+            windowWidth = image->s() - windowX;
+        }
+
+        if (windowY + windowHeight > image->t())
+        {
+            windowHeight = image->t() - windowY;
+        }
+
+        if ((windowWidth * windowHeight) == 0)
+        {
+            return NULL;
+        }
+
+        //Compute the actual bounds of the area we are computing
+        double res_s = (src_maxx - src_minx) / (double)image->s();
+        double res_t = (src_maxy - src_miny) / (double)image->t();
+
+        dst_minx = src_minx + (double)windowX * res_s;
+        dst_miny = src_miny + (double)windowY * res_t;
+        dst_maxx = dst_minx + (double)windowWidth * res_s;
+        dst_maxy = dst_miny + (double)windowHeight * res_t;
+
+        //OE_NOTICE << "Copying from " << windowX << ", " << windowY << ", " << windowWidth << ", " << windowHeight << std::endl;
+
+        //Allocate the croppped image
+        osg::Image* cropped = new osg::Image;
+        cropped->allocateImage(windowWidth, windowHeight, image->r(), image->getPixelFormat(), image->getDataType());
+        cropped->setInternalTextureFormat( image->getInternalTextureFormat() );
+
+        for (int layer=0; layer<image->r(); ++layer)
+        {
+            for (int src_row = windowY, dst_row=0; dst_row < windowHeight; src_row++, dst_row++)
+            {
+                if (src_row > image->t()-1) SG_LOG(SG_OSG, SG_INFO, "HeightBroke");
+                const void* src_data = image->data(windowX, src_row, layer);
+                void* dst_data = cropped->data(0, dst_row, layer);
+                memcpy( dst_data, src_data, cropped->getRowSizeInBytes());
+            }
+        }
+        return cropped;
+    }
+
+    Orthophoto::Orthophoto(const std::vector<OrthophotoRef>& orthophotos, const OrthophotoBounds& needed_bbox) {
+        
+        OrthophotoBounds prelim_bbox;
         for (const auto& orthophoto : orthophotos) {
-            _bbox.expandToInclude(orthophoto->getBbox());
+            prelim_bbox.expandToInclude(orthophoto->getBbox());
         }
 
         const OrthophotoRef& some_orthophoto = orthophotos[0];
@@ -238,32 +296,40 @@ namespace simgear {
         const OrthophotoBounds& some_bbox = some_orthophoto->getBbox();
         const double degs_to_pixels = some_image->s() / some_bbox.getWidth();
         
-        const int total_width = degs_to_pixels * _bbox.getWidth();
-        const int total_height = degs_to_pixels * _bbox.getHeight();
+        const int total_width = degs_to_pixels * prelim_bbox.getWidth();
+        const int total_height = degs_to_pixels * prelim_bbox.getHeight();
 
         const int depth = some_image->r();
         GLenum pixel_format = some_image->getPixelFormat();
         GLenum data_type = some_image->getDataType();
         int packing = some_image->getPacking();
 
-        _image = new osg::Image();
-        _image->allocateImage(total_width, total_height, depth, pixel_format, data_type, packing);
+        ImageRef prelim_image = new osg::Image();
+        prelim_image->allocateImage(total_width, total_height, depth, pixel_format, data_type, packing);
 
         for (const auto& orthophoto : orthophotos) {
             
             const OrthophotoBounds& bounds = orthophoto->getBbox();
             const int width = degs_to_pixels * bounds.getWidth();
             const int height = degs_to_pixels * bounds.getHeight();
-            const int s_offset = degs_to_pixels * _bbox.getLonOffset(bounds);
-            const int t_offset = degs_to_pixels * _bbox.getLatOffset(bounds);
+            const int s_offset = degs_to_pixels * prelim_bbox.getLonOffset(bounds);
+            const int t_offset = degs_to_pixels * prelim_bbox.getLatOffset(bounds);
 
             // Make a deep copy of the orthophoto's image so that we don't modify the original when scaling
             ImageRef sub_image = new osg::Image(*orthophoto->_image, osg::CopyOp::DEEP_COPY_ALL);
 
             sub_image->scaleImage(width, height, depth);
             
-            _image->copySubImage(s_offset, t_offset, 0, sub_image);
+            prelim_image->copySubImage(s_offset, t_offset, 0, sub_image);
         }
+
+        double x_min = prelim_bbox.getLonOffset(needed_bbox) * degs_to_pixels;
+        double y_min = prelim_bbox.getLatOffset(needed_bbox) * degs_to_pixels;
+        double x_max = x_min + needed_bbox.getWidth() * degs_to_pixels;
+        double y_max = y_min + needed_bbox.getHeight() * degs_to_pixels;
+
+        _image = cropImage(prelim_image, 0.0, 0.0, total_width, total_height, x_min, y_min, x_max, y_max);
+        _bbox = needed_bbox; // Theoretically, it would be good to adjust from how the bounds have changed from cropping
     }
 
     osg::ref_ptr<osg::Texture2D> Orthophoto::getTexture() {
@@ -316,9 +382,11 @@ namespace simgear {
         
         std::unordered_map<long, bool> orthophotos_attempted;
         std::vector<OrthophotoRef> orthophotos;
+        OrthophotoBounds needed_bounds;
 
         for (const auto& node : nodes) {
             const SGGeod node_geod = SGGeod::fromCart(node + center);
+            needed_bounds.expandToInclude(node_geod.getLongitudeDeg(), node_geod.getLatitudeDeg());
             const SGBucket bucket(node_geod);
             const long bucket_idx = bucket.gen_index();
             bool& orthophoto_attempted = orthophotos_attempted[bucket_idx];
@@ -335,6 +403,6 @@ namespace simgear {
             return nullptr;
         }
 
-        return new Orthophoto(orthophotos);
+        return new Orthophoto(orthophotos, needed_bounds);
     }
 }
