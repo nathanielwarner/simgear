@@ -55,8 +55,8 @@ struct ReaderWriterSPT::CullCallback : public osg::NodeCallback {
         // Culling away tiles that we look at from the downside.
         // This is done by computing the maximum distance we can
         // see something from the current eyepoint. If the sphere
-        // that is defined by this radius does no intersects the
-        // nodes sphere, then this tile is culled away.
+        // that is defined by this radius does not intersect the
+        // node's sphere, then this tile is culled away.
         // Computing this radius happens by two rectangular triangles:
         // Let r be the view point. rmin is the minimum radius we find
         // a ground surface we need to look above. rmax is the
@@ -286,7 +286,7 @@ ReaderWriterSPT::createTree(const BucketBox& bucketBox, const LocalOptions& opti
 osg::ref_ptr<osg::Node>
 ReaderWriterSPT::createPagedLOD(const BucketBox& bucketBox, const LocalOptions& options) const
 {
-    osg::PagedLOD* pagedLOD = new osg::PagedLOD;
+    osg::ref_ptr<osg::PagedLOD> pagedLOD = new osg::PagedLOD;
 
     pagedLOD->setCenterMode(osg::PagedLOD::USER_DEFINED_CENTER);
     SGSpheref sphere = bucketBox.getBoundingSphere();
